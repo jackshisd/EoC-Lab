@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-This code controls an audio codec and pi camera module 3 attached to a baby head protector. The processing is carried out by a Raspberry Pi Zero 2 W and is powered by an external Lipo battery. The wearable is controlled by a push button and includes an LED indicator.
 =======
 | Supported Targets | ESP32 | ESP32-P4 | ESP32-S3 |
 | ----------------- | ----- | -------- | -------- |
