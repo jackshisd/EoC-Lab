@@ -1,34 +1,29 @@
 | Supported Targets | ESP32 | ESP32-P4 | ESP32-S3 |
 | ----------------- | ----- | -------- | -------- |
 
-# SD Card example (SDMMC)
+# SD Card + Mic Recorder + OLED (ESP32-S3)
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
-__WARNING:__ This example can potentially delete all data from your SD card (when formatting is enabled). Back up your data first before proceeding.
+__WARNING:__ This project writes audio files to the SD card. Back up your data before testing.
 
-This example demonstrates how to use an SD card with an ESP device. Example does the following steps:
+This project records microphone audio to WAV files on an SD card. It uses:
 
-1. Use an "all-in-one" `esp_vfs_fat_sdmmc_mount` function to:
-    - initialize SDMMC peripheral,
-    - probe and initialize an SD card,
-    - mount FAT filesystem using FATFS library (and format card, if the filesystem cannot be mounted),
-    - register FAT filesystem in VFS, enabling C standard library and POSIX functions to be used.
-1. Print information about the card, such as name, type, capacity, and maximum supported frequency.
-1. Create a file using `fopen` and write to it using `fprintf`.
-1. Rename the file. Before renaming, check if destination file already exists using `stat` function, and remove it using `unlink` function.
-1. Open renamed file for reading, read back the line, and print it to the terminal.
-1. __OPTIONAL:__ Format the SD card, check if the file doesn't exist anymore.
+1. SDMMC for FAT filesystem mount/unmount.
+2. I2S mic capture (ICS-43434) to `mic_0001.wav`, `mic_0002.wav`, etc.
+3. A button with short/long press logic.
+4. A passive buzzer for audio feedback on each press.
+5. An SSD1306 I2C OLED that mirrors log messages.
 
-This example supports SD (SDSC, SDHC, SDXC) cards and eMMC chips.
+This project supports SD (SDSC, SDHC, SDXC) cards and eMMC chips.
 
 ## Hardware
 
-This example requires an ESP32 or ESP32-S3 development board with an SD card slot and an SD card.
+This project targets ESP32-S3 and uses an SD card breakout or slot plus an I2S mic and OLED.
 
 Although it is possible to connect an SD card breakout adapter, keep in mind that connections using breakout cables are often unreliable and have poor signal integrity. You may need to use lower clock frequency when working with SD card breakout adapters.
 
-This example doesn't utilize card detect (CD) and write protect (WP) signals from SD card slot.
+This project doesn't utilize card detect (CD) and write protect (WP) signals from SD card slot.
 
 ### Pin assignments for ESP32
 
@@ -46,7 +41,7 @@ GPIO12 (MTDI) | D2          | not used in 1-line SD mode; 10k pullup in 4-line S
 GPIO13 (MTCK) | D3          | not used in 1-line SD mode, but card's D3 pin must have a 10k pullup
 
 
-### Pin assignments for ESP32-S3
+### Pin assignments for ESP32-S3 (current project)
 
 On ESP32-S3, SDMMC peripheral is connected to GPIO pins using GPIO matrix. This allows arbitrary GPIOs to be used to connect an SD card. In this example, GPIOs can be configured in two ways:
 
@@ -59,12 +54,42 @@ When using an ESP32-S3-USB-OTG board, this example runs without any extra modifi
 
 ESP32-S3 pin  | SD card pin | Notes
 --------------|-------------|------------
-GPIO36        | CLK         | 10k pullup
-GPIO35        | CMD         | 10k pullup
-GPIO37        | D0          | 10k pullup
-GPIO38        | D1          | not used in 1-line SD mode; 10k pullup in 4-line mode
-GPIO33        | D2          | not used in 1-line SD mode; 10k pullup in 4-line mode
-GPIO34        | D3          | not used in 1-line SD mode, but card's D3 pin must have a 10k pullup
+GPIO4         | CLK         | 10k pullup
+GPIO5         | CMD         | 10k pullup
+GPIO6         | D0          | 10k pullup
+GPIO7         | D1          | 10k pullup
+GPIO15        | D2          | 10k pullup
+GPIO16        | D3          | 10k pullup (required even in 1-line mode)
+
+### I2S mic (ICS-43434)
+
+ESP32-S3 pin  | Mic pin
+--------------|---------
+GPIO19        | BCLK/SCK
+GPIO20        | WS/LRCL
+GPIO21        | DOUT/SD
+3.3V          | VCC
+GND           | GND
+
+SEL/LR on the mic should be tied to GND (left channel), which matches the code.
+
+### OLED (SSD1306, I2C)
+
+ESP32-S3 pin  | OLED pin
+--------------|---------
+GPIO41        | SDA
+GPIO42        | SCL
+3.3V          | VCC
+GND           | GND
+
+I2C address is `0x3C`.
+
+### Button + buzzer
+
+ESP32-S3 pin  | Device
+--------------|---------
+GPIO1         | Button (pull-up input)
+GPIO2         | Passive buzzer (PWM output)
 
 ### Pin assignments for ESP32-P4
 
@@ -122,7 +147,7 @@ This command will burn the `XPD_SDIO_TIEH`, `XPD_SDIO_FORCE`, and `XPD_SDIO_REG`
 
 See [the document about pullup requirements](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/peripherals/sd_pullup_requirements.html) for more details about pullup support and compatibility of modules and development boards.
 
-## How to use example
+## How to use
 
 ### Build and flash
 
@@ -136,6 +161,15 @@ idf.py -p PORT flash monitor
 
 (To exit the serial monitor, type ``Ctrl-]``.)
 
+### Recording flow
+
+1. Long press starts recording and mounts the SD card.
+2. Audio is written to `mic_0001.wav`, `mic_0002.wav`, etc.
+3. Long press again stops recording, finalizes the WAV header, and unmounts the SD card.
+4. A later long press repeats the cycle with a new filename.
+
+Short press toggles pause/resume during recording. Each press produces a short beep.
+
 See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
 
 
@@ -146,21 +180,13 @@ Here is an example console output. In this case a 128MB SDSC card was connected,
 ```
 I (336) example: Initializing SD card
 I (336) example: Using SDMMC peripheral
-I (336) gpio: GPIO[13]| InputEn: 0| OutputEn: 1| OpenDrain: 0| Pullup: 0| Pulldown: 0| Intr:0
-W (596) vfs_fat_sdmmc: failed to mount card (13)
-W (596) vfs_fat_sdmmc: partitioning card
-W (596) vfs_fat_sdmmc: formatting card, allocation unit size=16384
-W (7386) vfs_fat_sdmmc: mounting again
-Name: XA0E5
-Type: SDHC/SDXC
-Speed: 20 MHz
-Size: 61068MB
-I (7386) example: Opening file /sdcard/hello.txt
-I (7396) example: File written
-I (7396) example: Renaming file /sdcard/hello.txt to /sdcard/foo.txt
-I (7396) example: Reading file /sdcard/foo.txt
-I (7396) example: Read from file: 'Hello XA0E5!'
-I (7396) example: Card unmounted
+I (420) example: Mounting filesystem
+I (538) mic: Waiting for long press
+I (1840) button: Recording started
+I (1841) mic: Recording started
+I (9620) mic: Stop requested
+I (9622) mic: Captured 7 sec to /sdcard/mic_0001.wav
+I (9660) example: Card unmounted
 ```
 
 ## Troubleshooting
