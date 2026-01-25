@@ -14,6 +14,7 @@ This project records microphone audio to WAV files on an SD card. It uses:
 3. A button with short/long press logic.
 4. A passive buzzer for audio feedback on each press.
 5. An SSD1306 I2C OLED that mirrors log messages.
+6. USB MSC to expose the SD card to a host when idle.
 
 This project supports SD (SDSC, SDHC, SDXC) cards and eMMC chips.
 
@@ -163,15 +164,20 @@ idf.py -p PORT flash monitor
 
 ### Recording flow
 
-1. Long press starts recording and mounts the SD card.
+1. Long press starts recording. USB MSC is stopped and the SD card is mounted to the app.
 2. Audio is written to `mic_0001.wav`, `mic_0002.wav`, etc.
-3. Long press again stops recording, finalizes the WAV header, and unmounts the SD card.
+3. Long press again stops recording, finalizes the WAV header, and returns the SD card to USB MSC.
 4. A later long press repeats the cycle with a new filename.
 
 Short press toggles pause/resume during recording. Each press produces a short beep.
 
 See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
 
+### USB mass storage
+
+When idle, the SD card is exposed over USB MSC for file access from your computer.
+During recording, USB MSC is stopped and the SD card is mounted to the application.
+After recording finishes, USB MSC is restarted and the card is visible again on the host.
 
 ## Example output
 
