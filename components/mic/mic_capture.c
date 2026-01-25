@@ -14,9 +14,9 @@
 #include "oled_ssd1306.h"
 
 #define I2S_SAMPLE_RATE_HZ 16000
-#define I2S_BCLK_IO        19
-#define I2S_WS_IO          20
-#define I2S_DIN_IO         21
+#define I2S_BCLK_IO        38
+#define I2S_WS_IO          39
+#define I2S_DIN_IO         40
 
 static const char *TAG = "mic";
 

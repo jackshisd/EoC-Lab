@@ -9,12 +9,16 @@
 // This example uses SDMMC peripheral to communicate with SD card.
 
 #include <string.h>
-#include <sys/unistd.h>
-#include <sys/stat.h>
-#include "esp_vfs_fat.h"
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
 #include "button.h"
 #include "mic_capture.h"
 #include "oled_ssd1306.h"
+#include "tinyusb.h"
+#include "tinyusb_default_config.h"
+#include "tinyusb_msc.h"
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
 #include "sd_test_io.h"
@@ -54,6 +58,75 @@ pin_configuration_t config = {
 };
 #endif //CONFIG_EXAMPLE_DEBUG_PIN_CONNECTIONS
 
+/* TinyUSB descriptors */
+#define EPNUM_MSC            1
+#define TUSB_DESC_TOTAL_LEN  (TUD_CONFIG_DESC_LEN + TUD_MSC_DESC_LEN)
+
+enum {
+    ITF_NUM_MSC = 0,
+    ITF_NUM_TOTAL
+};
+
+enum {
+    EDPT_CTRL_OUT = 0x00,
+    EDPT_CTRL_IN  = 0x80,
+
+    EDPT_MSC_OUT  = 0x01,
+    EDPT_MSC_IN   = 0x81,
+};
+
+static tusb_desc_device_t descriptor_config = {
+    .bLength = sizeof(descriptor_config),
+    .bDescriptorType = TUSB_DESC_DEVICE,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .idVendor = 0x303A,
+    .idProduct = 0x4002,
+    .bcdDevice = 0x100,
+    .iManufacturer = 0x01,
+    .iProduct = 0x02,
+    .iSerialNumber = 0x03,
+    .bNumConfigurations = 0x01
+};
+
+static uint8_t const msc_fs_configuration_desc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 0, EDPT_MSC_OUT, EDPT_MSC_IN, 64),
+};
+
+#if (TUD_OPT_HIGH_SPEED)
+static const tusb_desc_device_qualifier_t device_qualifier = {
+    .bLength = sizeof(tusb_desc_device_qualifier_t),
+    .bDescriptorType = TUSB_DESC_DEVICE_QUALIFIER,
+    .bcdUSB = 0x0200,
+    .bDeviceClass = TUSB_CLASS_MISC,
+    .bDeviceSubClass = MISC_SUBCLASS_COMMON,
+    .bDeviceProtocol = MISC_PROTOCOL_IAD,
+    .bMaxPacketSize0 = CFG_TUD_ENDPOINT0_SIZE,
+    .bNumConfigurations = 0x01,
+    .bReserved = 0
+};
+
+static uint8_t const msc_hs_configuration_desc[] = {
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 0, EDPT_MSC_OUT, EDPT_MSC_IN, 512),
+};
+#endif
+
+static char const *string_desc_arr[] = {
+    (const char[]) { 0x09, 0x04 },
+    "TinyUSB",
+    "TinyUSB Device",
+    "123456",
+};
+
+static tinyusb_msc_storage_handle_t s_storage_hdl;
+static tinyusb_config_t s_tusb_cfg;
+static bool s_usb_active;
+
 static esp_err_t s_example_write_file(const char *path, char *data)
 {
     ESP_LOGI(TAG, "Opening file %s", path);
@@ -91,40 +164,12 @@ static esp_err_t s_example_read_file(const char *path)
     return ESP_OK;
 }
 
-void app_main(void)
+static esp_err_t s_storage_init_sdmmc(sdmmc_card_t **card)
 {
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
+    bool host_init = false;
+    sdmmc_card_t *sd_card = NULL;
 
-    // Options for mounting the filesystem.
-    // If format_if_mount_failed is set to true, SD card will be partitioned and
-    // formatted in case when mounting fails.
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-#ifdef CONFIG_EXAMPLE_FORMAT_IF_MOUNT_FAILED
-        .format_if_mount_failed = true,
-#else
-        .format_if_mount_failed = false,
-#endif // EXAMPLE_FORMAT_IF_MOUNT_FAILED
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024
-    };
-    sdmmc_card_t *card;
-    const char mount_point[] = MOUNT_POINT;
-    ESP_LOGI(TAG, "Initializing SD card");
-    button_init();
-    if (oled_ssd1306_init() != ESP_OK) {
-        ESP_LOGE(TAG, "OLED init failed");
-    }
-
-    // Use settings defined above to initialize SD card and mount FAT filesystem.
-    // Note: esp_vfs_fat_sdmmc/sdspi_mount is all-in-one convenience functions.
-    // Please check its source code and implement error recovery when developing
-    // production applications.
-
-    ESP_LOGI(TAG, "Using SDMMC peripheral");
-
-    // By default, SD card frequency is initialized to SDMMC_FREQ_DEFAULT (20MHz)
-    // For setting a specific frequency, use host.max_freq_khz (range 400kHz - 40MHz for SDMMC)
-    // Example: for fixed frequency of 10MHz, use host.max_freq_khz = 10000;
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 #if CONFIG_EXAMPLE_SDMMC_SPEED_HS
     host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
@@ -137,9 +182,6 @@ void app_main(void)
     host.max_freq_khz = SDMMC_FREQ_DDR50;
 #endif
 
-    // For SoCs where the SD power can be supplied both via an internal or external (e.g. on-board LDO) power supply.
-    // When using specific IO pins (which can be used for ultra high-speed SDMMC) to connect to the SD card
-    // and the internal LDO power supply, we need to initialize the power supply first.
 #if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
     sd_pwr_ctrl_ldo_config_t ldo_config = {
         .ldo_chan_id = CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_IO_ID,
@@ -149,23 +191,17 @@ void app_main(void)
     ret = sd_pwr_ctrl_new_on_chip_ldo(&ldo_config, &pwr_ctrl_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create a new on-chip LDO power control driver");
-        return;
+        return ret;
     }
     host.pwr_ctrl_handle = pwr_ctrl_handle;
 #endif
 
-    // This initializes the slot without card detect (CD) and write protect (WP) signals.
-    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 #if EXAMPLE_IS_UHS1
     slot_config.flags |= SDMMC_SLOT_FLAG_UHS1;
 #endif
-
-    // Set bus width to use:
     slot_config.width = 4;
 
-    // On chips where the GPIOs used for SD card can be configured, set them in
-    // the slot_config structure:
 #ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
     slot_config.clk = 4;
     slot_config.cmd = 5;
@@ -173,12 +209,126 @@ void app_main(void)
     slot_config.d1 = 7;
     slot_config.d2 = 15;
     slot_config.d3 = 16;
-#endif  // CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
+#endif
 
-    // Enable internal pullups on enabled pins. The internal pullups
-    // are insufficient however, please make sure 10k external pullups are
-    // connected on the bus. This is for debug / example purpose only.
     slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+    sd_card = (sdmmc_card_t *)malloc(sizeof(sdmmc_card_t));
+    if (!sd_card) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    ret = (*host.init)();
+    if (ret != ESP_OK) {
+        goto clean;
+    }
+    host_init = true;
+
+    ret = sdmmc_host_init_slot(host.slot, (const sdmmc_slot_config_t *)&slot_config);
+    if (ret != ESP_OK) {
+        goto clean;
+    }
+
+    while (sdmmc_card_init(&host, sd_card)) {
+        ESP_LOGE(TAG, "Insert uSD card. Retrying...");
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    sdmmc_card_print_info(stdout, sd_card);
+    *card = sd_card;
+    return ESP_OK;
+
+clean:
+    if (host_init) {
+        if (host.flags & SDMMC_HOST_FLAG_DEINIT_ARG) {
+            host.deinit_p(host.slot);
+        } else {
+            (*host.deinit)();
+        }
+    }
+    if (sd_card) {
+        free(sd_card);
+    }
+#if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+    sd_pwr_ctrl_del_on_chip_ldo(pwr_ctrl_handle);
+#endif
+    return ret;
+}
+
+static esp_err_t s_switch_mount(tinyusb_msc_mount_point_t mount_point)
+{
+    return tinyusb_msc_set_storage_mount_point(s_storage_hdl, mount_point);
+}
+
+static esp_err_t s_usb_start(void)
+{
+    if (s_usb_active) {
+        return ESP_OK;
+    }
+    esp_err_t ret = tinyusb_driver_install(&s_tusb_cfg);
+    if (ret == ESP_OK) {
+        s_usb_active = true;
+        ESP_LOGI(TAG, "USB MSC ready");
+    }
+    return ret;
+}
+
+static void s_usb_stop(void)
+{
+    if (!s_usb_active) {
+        return;
+    }
+    esp_err_t ret = tinyusb_driver_uninstall();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "USB uninstall failed (%s)", esp_err_to_name(ret));
+        return;
+    }
+    s_usb_active = false;
+    ESP_LOGI(TAG, "USB MSC stopped");
+}
+
+void app_main(void)
+{
+    esp_err_t ret;
+
+    ESP_LOGI(TAG, "Initializing SD card");
+    button_init();
+    if (oled_ssd1306_init() != ESP_OK) {
+        ESP_LOGE(TAG, "OLED init failed");
+    }
+
+    sdmmc_card_t *card = NULL;
+    ret = s_storage_init_sdmmc(&card);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to init SD card (%s)", esp_err_to_name(ret));
+        return;
+    }
+
+    tinyusb_msc_storage_config_t storage_cfg = {
+        .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
+        .fat_fs = {
+            .base_path = MOUNT_POINT,
+            .config.max_files = 5,
+            .format_flags = 0,
+        },
+        .medium.card = card,
+    };
+
+    ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&storage_cfg, &s_storage_hdl));
+
+    s_tusb_cfg = (tinyusb_config_t)TINYUSB_DEFAULT_CONFIG();
+    s_tusb_cfg.descriptor.device = &descriptor_config;
+    s_tusb_cfg.descriptor.full_speed_config = msc_fs_configuration_desc;
+    s_tusb_cfg.descriptor.string = string_desc_arr;
+    s_tusb_cfg.descriptor.string_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]);
+#if (TUD_OPT_HIGH_SPEED)
+    s_tusb_cfg.descriptor.high_speed_config = msc_hs_configuration_desc;
+    s_tusb_cfg.descriptor.qualifier = &device_qualifier;
+#endif
+
+    ESP_ERROR_CHECK(s_usb_start());
+    ESP_LOGI(TAG, "Exposing SD card over USB");
+    ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB));
 
     uint32_t file_index = 1;
     while (true) {
@@ -186,25 +336,14 @@ void app_main(void)
             vTaskDelay(pdMS_TO_TICKS(50));
         }
 
-        ESP_LOGI(TAG, "Mounting filesystem");
-        ret = esp_vfs_fat_sdmmc_mount(mount_point, &host, &slot_config, &mount_config, &card);
-
+        ESP_LOGI(TAG, "Disabling USB and mounting SD card for recording");
+        s_usb_stop();
+        ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP);
         if (ret != ESP_OK) {
-            if (ret == ESP_FAIL) {
-                ESP_LOGE(TAG, "Failed to mount filesystem. "
-                         "If you want the card to be formatted, set the EXAMPLE_FORMAT_IF_MOUNT_FAILED menuconfig option.");
-            } else {
-                ESP_LOGE(TAG, "Failed to initialize the card (%s). "
-                         "Make sure SD card lines have pull-up resistors in place.", esp_err_to_name(ret));
-#ifdef CONFIG_EXAMPLE_DEBUG_PIN_CONNECTIONS
-                check_sd_card_pins(&config, pin_count);
-#endif
-            }
+            ESP_LOGE(TAG, "Failed to mount to app (%s)", esp_err_to_name(ret));
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
-        ESP_LOGI(TAG, "Filesystem mounted");
-        sdmmc_card_print_info(stdout, card);
 
         char mic_path[EXAMPLE_MAX_CHAR_SIZE];
         snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
@@ -215,16 +354,8 @@ void app_main(void)
             file_index++;
         }
 
-        esp_vfs_fat_sdcard_unmount(mount_point, card);
-        ESP_LOGI(TAG, "Card unmounted");
+        ESP_LOGI(TAG, "Exposing SD card over USB");
+        ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB));
+        ESP_ERROR_CHECK(s_usb_start());
     }
-
-    // Deinitialize the power control driver if it was used
-#if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
-    ret = sd_pwr_ctrl_del_on_chip_ldo(pwr_ctrl_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to delete the on-chip LDO power control driver");
-        return;
-    }
-#endif
 }
