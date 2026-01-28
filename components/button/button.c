@@ -24,11 +24,13 @@ static volatile bool s_recording = false;
 static volatile TickType_t s_record_start_tick = 0;
 static char s_status_line[64] = "Ready";
 
+// Logs button state changes to the console.
 static void s_log_info(const char *text)
 {
     ESP_LOGI(TAG, "%s", text);
 }
 
+// Plays a short buzzer pulse for feedback.
 static void s_buzzer_pulse(void)
 {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, (1 << BUZZER_DUTY_RES) / 2);
@@ -38,6 +40,7 @@ static void s_buzzer_pulse(void)
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+// Updates the OLED with timer/status once per second.
 static void s_oled_task(void *arg)
 {
     (void)arg;
@@ -63,6 +66,7 @@ static void s_oled_task(void *arg)
     }
 }
 
+// Handles debounced button presses and toggles recording state.
 static void s_button_task(void *arg)
 {
     (void)arg;
@@ -105,6 +109,7 @@ static void s_button_task(void *arg)
     }
 }
 
+// Initializes GPIO, buzzer, and background tasks.
 void button_init(void)
 {
     gpio_config_t cfg = {
@@ -140,6 +145,7 @@ void button_init(void)
     xTaskCreate(s_oled_task, "oled_task", 2048, NULL, 5, NULL);
 }
 
+// Sets the idle OLED display lines shown when not recording.
 void button_set_idle_display(const char *line1, const char *line2)
 {
     if (line1 == NULL) {
@@ -151,11 +157,13 @@ void button_set_idle_display(const char *line1, const char *line2)
     snprintf(s_status_line, sizeof(s_status_line), "%s\n%s", line1, line2);
 }
 
+// Returns whether recording is currently paused.
 bool button_is_paused(void)
 {
     return s_paused;
 }
 
+// Returns whether recording is currently active.
 bool button_is_recording(void)
 {
     return s_recording;

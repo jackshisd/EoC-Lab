@@ -117,6 +117,7 @@ static const uint8_t s_font5x7[] = {
     0x00,0x06,0x09,0x09,0x06  // 0x7f DEL
 };
 
+// Sends a control byte and payload over I2C to the OLED.
 static esp_err_t s_i2c_write(uint8_t control, const uint8_t *data, size_t len)
 {
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
@@ -132,16 +133,19 @@ static esp_err_t s_i2c_write(uint8_t control, const uint8_t *data, size_t len)
     return ret;
 }
 
+// Writes a single SSD1306 command byte.
 static esp_err_t s_write_cmd(uint8_t cmd)
 {
     return s_i2c_write(0x00, &cmd, 1);
 }
 
+// Writes a block of display data bytes.
 static esp_err_t s_write_data(const uint8_t *data, size_t len)
 {
     return s_i2c_write(0x40, data, len);
 }
 
+// Clears the display to all zeros.
 static esp_err_t ssd1306_clear(void)
 {
     uint8_t clear[OLED_WIDTH];
@@ -155,6 +159,7 @@ static esp_err_t ssd1306_clear(void)
     return ESP_OK;
 }
 
+// Initializes I2C and SSD1306 display settings.
 esp_err_t oled_ssd1306_init(void)
 {
     i2c_config_t cfg = {
@@ -195,6 +200,7 @@ esp_err_t oled_ssd1306_init(void)
     return ssd1306_clear();
 }
 
+// Renders text (with newlines) onto the display.
 esp_err_t oled_ssd1306_display_text(const char *text)
 {
     uint8_t buffer[OLED_WIDTH * OLED_PAGES];

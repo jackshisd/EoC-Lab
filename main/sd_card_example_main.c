@@ -127,6 +127,7 @@ static tinyusb_msc_storage_handle_t s_storage_hdl;
 static tinyusb_config_t s_tusb_cfg;
 static bool s_usb_active;
 
+// Writes a test string to a file on the SD card.
 static esp_err_t s_example_write_file(const char *path, char *data)
 {
     ESP_LOGI(TAG, "Opening file %s", path);
@@ -142,6 +143,7 @@ static esp_err_t s_example_write_file(const char *path, char *data)
     return ESP_OK;
 }
 
+// Reads a line from a file on the SD card.
 static esp_err_t s_example_read_file(const char *path)
 {
     ESP_LOGI(TAG, "Reading file %s", path);
@@ -164,6 +166,7 @@ static esp_err_t s_example_read_file(const char *path)
     return ESP_OK;
 }
 
+// Initializes the SDMMC host/slot and returns a ready card handle.
 static esp_err_t s_storage_init_sdmmc(sdmmc_card_t **card)
 {
     esp_err_t ret = ESP_OK;
@@ -255,11 +258,13 @@ clean:
     return ret;
 }
 
+// Switches TinyUSB MSC mount point between USB and app.
 static esp_err_t s_switch_mount(tinyusb_msc_mount_point_t mount_point)
 {
     return tinyusb_msc_set_storage_mount_point(s_storage_hdl, mount_point);
 }
 
+// Starts the TinyUSB MSC driver if not already running.
 static esp_err_t s_usb_start(void)
 {
     if (s_usb_active) {
@@ -273,6 +278,7 @@ static esp_err_t s_usb_start(void)
     return ret;
 }
 
+// Stops the TinyUSB MSC driver if running.
 static void s_usb_stop(void)
 {
     if (!s_usb_active) {
@@ -287,6 +293,7 @@ static void s_usb_stop(void)
     ESP_LOGI(TAG, "USB MSC stopped");
 }
 
+// Initializes peripherals and handles record/USB switching loop.
 void app_main(void)
 {
     esp_err_t ret;

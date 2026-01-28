@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <errno.h>
 #include <unistd.h>
 #include <stdarg.h>
@@ -13,13 +14,32 @@
 #include "freertos/FreeRTOS.h"
 #include "oled_ssd1306.h"
 
-#define I2S_SAMPLE_RATE_HZ 16000
-#define I2S_BCLK_IO        38
-#define I2S_WS_IO          39
-#define I2S_DIN_IO         40
+#define I2S_SAMPLE_RATE_HZ 16000 // Sample rate
+#define I2S_BCLK_IO        38 // Bit clock
+#define I2S_WS_IO          39 // Also known as LRCK
+#define I2S_DIN_IO         40 // Microphone data input
+#define MIC_GAIN_MULT      4  // Microphone gain multiplier
 
 static const char *TAG = "mic";
 
+// Applies software gain with clipping.
+static int32_t s_apply_gain(int32_t sample)
+{
+#if MIC_GAIN_MULT > 1
+    int64_t v = (int64_t)sample * MIC_GAIN_MULT;
+    if (v > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (v < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return (int32_t)v;
+#else
+    return sample;
+#endif
+}
+
+// Logs an info message (and optionally OLED if enabled).
 static void s_log_info(const char *fmt, ...)
 {
     char buf[64];
@@ -31,6 +51,7 @@ static void s_log_info(const char *fmt, ...)
     //oled_ssd1306_display_text(buf);
 }
 
+// Logs an error message (and shows it on OLED).
 static void s_log_error(const char *fmt, ...)
 {
     char buf[64];
@@ -42,12 +63,14 @@ static void s_log_error(const char *fmt, ...)
     oled_ssd1306_display_text(buf);
 }
 
+// Writes a 16-bit little-endian value to a file.
 static void s_write_le16(FILE *f, uint16_t value)
 {
     uint8_t b[2] = {value & 0xff, (value >> 8) & 0xff};
     fwrite(b, 1, sizeof(b), f);
 }
 
+// Writes a 32-bit little-endian value to a file.
 static void s_write_le32(FILE *f, uint32_t value)
 {
     uint8_t b[4] = {
@@ -59,12 +82,14 @@ static void s_write_le32(FILE *f, uint32_t value)
     fwrite(b, 1, sizeof(b), f);
 }
 
+// Checks if the path ends with .wav.
 static bool s_has_wav_extension(const char *path)
 {
     const char *dot = strrchr(path, '.');
     return (dot != NULL) && (strcmp(dot, ".wav") == 0);
 }
 
+// Writes/updates a PCM WAV header.
 static void s_write_wav_header(FILE *f, uint32_t sample_rate_hz, uint16_t bits_per_sample,
                                uint16_t channels, uint32_t data_bytes)
 {
@@ -87,6 +112,7 @@ static void s_write_wav_header(FILE *f, uint32_t sample_rate_hz, uint16_t bits_p
     s_write_le32(f, data_bytes);
 }
 
+// Captures I2S audio to a file; stops on button or after N seconds.
 esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 {
     esp_err_t ret;
@@ -190,6 +216,12 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
         if (bytes_read > 0) {
             if (button_is_paused()) {
                 memset(buffer, 0, bytes_read);
+            } else {
+                int32_t *samples = (int32_t *)buffer;
+                size_t count = bytes_read / sizeof(int32_t);
+                for (size_t i = 0; i < count; ++i) {
+                    samples[i] = s_apply_gain(samples[i]);
+                }
             }
             fwrite(buffer, 1, bytes_read, f);
             captured_samples += bytes_read / bytes_per_sample;

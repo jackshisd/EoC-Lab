@@ -18,6 +18,7 @@ const static char *TAG = "SD_TEST";
 #define GPIO_INPUT_PIN_SEL(pin)   (1ULL<<pin)
 
 #if CONFIG_EXAMPLE_ENABLE_ADC_FEATURE
+// Initializes ADC calibration if supported for a channel.
 static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
 {
     adc_cali_handle_t handle = NULL;
@@ -65,6 +66,7 @@ static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_att
     return calibrated;
 }
 
+// Frees ADC calibration resources.
 static void example_adc_calibration_deinit(adc_cali_handle_t handle)
 {
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
@@ -75,6 +77,7 @@ static void example_adc_calibration_deinit(adc_cali_handle_t handle)
 #endif
 }
 
+// Reads pin voltage (optionally calibrated) in volts.
 static float get_pin_voltage(int i, adc_oneshot_unit_handle_t adc_handle, bool do_calibration, adc_cali_handle_t adc_cali_handle)
 {
     int voltage = 0;
@@ -94,6 +97,7 @@ static float get_pin_voltage(int i, adc_oneshot_unit_handle_t adc_handle, bool d
 }
 #endif //CONFIG_EXAMPLE_ENABLE_ADC_FEATURE
 
+// Measures cycles until a GPIO reaches a level or timeout.
 static uint32_t get_cycles_until_pin_level(int i, int level, int timeout) {
     uint32_t start = esp_cpu_get_cycle_count();
     while(gpio_get_level(i) == !level && esp_cpu_get_cycle_count() - start < timeout) {
@@ -103,6 +107,7 @@ static uint32_t get_cycles_until_pin_level(int i, int level, int timeout) {
     return end - start;
 }
 
+// Exercises SD card pins for recovery time, pullups, and optional ADC checks.
 void check_sd_card_pins(pin_configuration_t *config, const int pin_count)
 {
     ESP_LOGI(TAG, "Testing SD pin connections and pullup strength");
