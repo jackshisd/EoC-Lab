@@ -4,7 +4,7 @@ set(srcs
 
 idf_component_register(SRCS ${srcs}
                        INCLUDE_DIRS "."
-                       REQUIRES fatfs sd_card mic button esp_tinyusb
+                       REQUIRES fatfs sd_card mic button esp_tinyusb esp32-camera camera i2c_bus
                        WHOLE_ARCHIVE)
 
 if(NOT CONFIG_SOC_SDMMC_HOST_SUPPORTED)

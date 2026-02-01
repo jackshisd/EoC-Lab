@@ -6,6 +6,7 @@
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_err.h"
 #include "esp_log.h"
 #include "oled_ssd1306.h"
 
@@ -23,6 +24,8 @@ static volatile bool s_paused = false;
 static volatile bool s_recording = false;
 static volatile TickType_t s_record_start_tick = 0;
 static char s_status_line[64] = "Ready";
+static TickType_t s_oled_next_retry_tick = 0;
+static uint8_t s_oled_fail_count = 0;
 
 // Logs button state changes to the console.
 static void s_log_info(const char *text)
@@ -46,6 +49,11 @@ static void s_oled_task(void *arg)
     (void)arg;
     char buffer[64];
     while (true) {
+        if (s_oled_next_retry_tick != 0 && xTaskGetTickCount() < s_oled_next_retry_tick) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+        esp_err_t ret;
         if (s_recording) {
             TickType_t elapsed_ticks = xTaskGetTickCount() - s_record_start_tick;
             uint32_t elapsed_seconds = (uint32_t)(elapsed_ticks / configTICK_RATE_HZ);
@@ -58,9 +66,22 @@ static void s_oled_task(void *arg)
                      (unsigned long)minutes,
                      (unsigned long)seconds,
                      line2);
-            oled_ssd1306_display_text(buffer);
+            ret = oled_ssd1306_display_text(buffer);
         } else {
-            oled_ssd1306_display_text(s_status_line);
+            ret = oled_ssd1306_display_text(s_status_line);
+        }
+        if (ret != ESP_OK) {
+            s_oled_fail_count++;
+            if (s_oled_fail_count == 1) {
+                oled_ssd1306_init();
+            }
+            if (s_oled_fail_count >= 3) {
+                s_oled_next_retry_tick = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
+                s_oled_fail_count = 0;
+            }
+        } else {
+            s_oled_fail_count = 0;
+            s_oled_next_retry_tick = 0;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -142,7 +163,7 @@ void button_init(void)
     ledc_channel_config(&buzzer_channel);
 
     xTaskCreate(s_button_task, "button_task", 2048, NULL, 10, NULL);
-    xTaskCreate(s_oled_task, "oled_task", 2048, NULL, 5, NULL);
+    xTaskCreate(s_oled_task, "oled_task", 4096, NULL, 5, NULL);
 }
 
 // Sets the idle OLED display lines shown when not recording.

@@ -84,6 +84,7 @@ GPIO42        | SCL
 GND           | GND
 
 I2C address is `0x3C`.
+Note: On ESP32-S3-DevKitC-1, GPIO41/42 are JTAG pins. Disable JTAG in `idf.py menuconfig` so they can be used for I2C.
 
 ### Button + buzzer
 

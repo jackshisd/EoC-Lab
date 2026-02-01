@@ -2,15 +2,17 @@
 
 #include <string.h>
 
+#include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "i2c_bus.h"
 
-#define OLED_I2C_PORT I2C_NUM_0
 #define OLED_I2C_ADDR 0x3C
 #define OLED_SDA_GPIO 41
 #define OLED_SCL_GPIO 42
-#define OLED_I2C_FREQ_HZ 400000
+#define OLED_I2C_FREQ_HZ 100000
 
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 32
@@ -79,7 +81,7 @@ static const uint8_t s_font5x7[] = {
     0x07,0x08,0x70,0x08,0x07, // 0x59 'Y'
     0x61,0x51,0x49,0x45,0x43, // 0x5a 'Z'
     0x00,0x7f,0x41,0x41,0x00, // 0x5b '['
-    0x02,0x04,0x08,0x10,0x20, // 0x5c '\'
+    0x02,0x04,0x08,0x10,0x20, // 0x5c '\\'
     0x00,0x41,0x41,0x7f,0x00, // 0x5d ']'
     0x04,0x02,0x01,0x02,0x04, // 0x5e '^'
     0x40,0x40,0x40,0x40,0x40, // 0x5f '_'
@@ -117,90 +119,89 @@ static const uint8_t s_font5x7[] = {
     0x00,0x06,0x09,0x09,0x06  // 0x7f DEL
 };
 
-// Sends a control byte and payload over I2C to the OLED.
 static esp_err_t s_i2c_write(uint8_t control, const uint8_t *data, size_t len)
 {
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    i2c_master_start(cmd);
-    i2c_master_write_byte(cmd, (OLED_I2C_ADDR << 1) | I2C_MASTER_WRITE, true);
-    i2c_master_write_byte(cmd, control, true);
+    uint8_t buffer[1 + OLED_WIDTH];
+    buffer[0] = control;
     if (len > 0) {
-        i2c_master_write(cmd, (uint8_t *)data, len, true);
+        memcpy(&buffer[1], data, len);
     }
-    i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(OLED_I2C_PORT, cmd, pdMS_TO_TICKS(100));
-    i2c_cmd_link_delete(cmd);
-    return ret;
+
+    return i2c_master_write_to_device(i2c_bus_get_port(), OLED_I2C_ADDR, buffer, 1 + len, pdMS_TO_TICKS(200));
 }
 
-// Writes a single SSD1306 command byte.
 static esp_err_t s_write_cmd(uint8_t cmd)
 {
     return s_i2c_write(0x00, &cmd, 1);
 }
 
-// Writes a block of display data bytes.
 static esp_err_t s_write_data(const uint8_t *data, size_t len)
 {
     return s_i2c_write(0x40, data, len);
 }
 
-// Clears the display to all zeros.
 static esp_err_t ssd1306_clear(void)
 {
     uint8_t clear[OLED_WIDTH];
     memset(clear, 0x00, sizeof(clear));
     for (int page = 0; page < OLED_PAGES; page++) {
-        s_write_cmd(0xB0 | page);
-        s_write_cmd(0x00);
-        s_write_cmd(0x10);
-        s_write_data(clear, sizeof(clear));
+        esp_err_t ret = s_write_cmd(0xB0 | page);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        ret = s_write_cmd(0x00);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        ret = s_write_cmd(0x10);
+        if (ret != ESP_OK) {
+            return ret;
+        }
+        ret = s_write_data(clear, sizeof(clear));
+        if (ret != ESP_OK) {
+            return ret;
+        }
     }
     return ESP_OK;
 }
 
-// Initializes I2C and SSD1306 display settings.
 esp_err_t oled_ssd1306_init(void)
 {
-    i2c_config_t cfg = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = OLED_SDA_GPIO,
-        .scl_io_num = OLED_SCL_GPIO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = OLED_I2C_FREQ_HZ,
-        .clk_flags = 0,
-    };
-    ESP_ERROR_CHECK(i2c_param_config(OLED_I2C_PORT, &cfg));
-    ESP_ERROR_CHECK(i2c_driver_install(OLED_I2C_PORT, cfg.mode, 0, 0, 0));
+    ESP_LOGI(TAG, "OLED I2C pins: SDA=%d SCL=%d addr=0x%02X", OLED_SDA_GPIO, OLED_SCL_GPIO, OLED_I2C_ADDR);
+    if (!i2c_bus_is_init()) {
+        ESP_LOGE(TAG, "I2C bus not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    s_write_cmd(0xAE); // display off
-    s_write_cmd(0xD5); // set display clock
-    s_write_cmd(0x80);
-    s_write_cmd(0xA8); // multiplex
-    s_write_cmd(0x1F); // 0x1F for 32 rows
-    s_write_cmd(0xD3); // display offset
-    s_write_cmd(0x00);
-    s_write_cmd(0x40); // start line
-    s_write_cmd(0x8D); // charge pump
-    s_write_cmd(0x14);
-    s_write_cmd(0x20); // memory mode
-    s_write_cmd(0x00); // horizontal addressing
-    s_write_cmd(0xA1); // segment remap
-    s_write_cmd(0xC8); // COM scan dec
-    s_write_cmd(0xDA); // COM pins
-    s_write_cmd(0x02);
-    s_write_cmd(0x81); // contrast
-    s_write_cmd(0x8F);
-    s_write_cmd(0xA4); // display follow RAM
-    s_write_cmd(0xA6); // normal display
-    s_write_cmd(0xAF); // display on
+    esp_err_t ret = s_write_cmd(0xAE); // display off
+    if (ret == ESP_OK) ret = s_write_cmd(0xD5); // set display clock
+    if (ret == ESP_OK) ret = s_write_cmd(0x80);
+    if (ret == ESP_OK) ret = s_write_cmd(0xA8); // multiplex
+    if (ret == ESP_OK) ret = s_write_cmd(0x1F); // 0x1F for 32 rows
+    if (ret == ESP_OK) ret = s_write_cmd(0xD3); // display offset
+    if (ret == ESP_OK) ret = s_write_cmd(0x00);
+    if (ret == ESP_OK) ret = s_write_cmd(0x40); // start line
+    if (ret == ESP_OK) ret = s_write_cmd(0x8D); // charge pump
+    if (ret == ESP_OK) ret = s_write_cmd(0x14);
+    if (ret == ESP_OK) ret = s_write_cmd(0x20); // memory mode
+    if (ret == ESP_OK) ret = s_write_cmd(0x00); // horizontal addressing
+    if (ret == ESP_OK) ret = s_write_cmd(0xA1); // segment remap
+    if (ret == ESP_OK) ret = s_write_cmd(0xC8); // COM scan dec
+    if (ret == ESP_OK) ret = s_write_cmd(0xDA); // COM pins
+    if (ret == ESP_OK) ret = s_write_cmd(0x02);
+    if (ret == ESP_OK) ret = s_write_cmd(0x81); // contrast
+    if (ret == ESP_OK) ret = s_write_cmd(0x8F);
+    if (ret == ESP_OK) ret = s_write_cmd(0xA4); // display follow RAM
+    if (ret == ESP_OK) ret = s_write_cmd(0xA6); // normal display
+    if (ret == ESP_OK) ret = s_write_cmd(0xAF); // display on
 
     ESP_LOGI(TAG, "SSD1306 initialized");
-    return ssd1306_clear();
+    if (ret == ESP_OK) {
+        ret = ssd1306_clear();
+    }
+    return ret;
 }
 
-// Renders text (with newlines) onto the display.
 esp_err_t oled_ssd1306_display_text(const char *text)
 {
     uint8_t buffer[OLED_WIDTH * OLED_PAGES];
@@ -233,11 +234,24 @@ esp_err_t oled_ssd1306_display_text(const char *text)
         x += 6;
     }
 
+    esp_err_t ret = ESP_OK;
     for (int p = 0; p < OLED_PAGES; p++) {
-        s_write_cmd(0xB0 | p);
-        s_write_cmd(0x00);
-        s_write_cmd(0x10);
-        s_write_data(&buffer[p * OLED_WIDTH], OLED_WIDTH);
+        ret = s_write_cmd(0xB0 | p);
+        if (ret != ESP_OK) {
+            break;
+        }
+        ret = s_write_cmd(0x00);
+        if (ret != ESP_OK) {
+            break;
+        }
+        ret = s_write_cmd(0x10);
+        if (ret != ESP_OK) {
+            break;
+        }
+        ret = s_write_data(&buffer[p * OLED_WIDTH], OLED_WIDTH);
+        if (ret != ESP_OK) {
+            break;
+        }
     }
-    return ESP_OK;
+    return ret;
 }
