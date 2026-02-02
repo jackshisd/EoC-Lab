@@ -5,6 +5,10 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
+
+#include "esp_err.h"
+
 typedef struct {
     int pin_d0;
     int pin_d1;
@@ -25,6 +29,13 @@ typedef struct {
 } camera_ov2640_pins_t;
 
 void camera_ov2640_get_default_pins(camera_ov2640_pins_t *pins);
+
+void camera_app_log_i2c_levels(void);
+esp_err_t camera_app_init(void);
+bool camera_app_is_ready(void);
+bool camera_app_is_recording(void);
+esp_err_t camera_app_start_record(const char *path);
+void camera_app_wait_for_stop(void);
 
 #ifdef __cplusplus
 }

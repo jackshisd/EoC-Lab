@@ -12,6 +12,7 @@
 #include "button.h"
 #include "driver/i2s_std.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "oled_ssd1306.h"
 
 #define I2S_SAMPLE_RATE_HZ 16000 // Sample rate
@@ -21,6 +22,16 @@
 #define MIC_GAIN_MULT      4  // Microphone gain multiplier
 
 static const char *TAG = "mic";
+
+typedef struct {
+    char path[128];
+    int seconds;
+} mic_capture_args_t;
+
+static TaskHandle_t s_mic_task = NULL;
+static volatile bool s_mic_running = false;
+static volatile int s_mic_last_seconds = 0;
+static volatile esp_err_t s_mic_last_result = ESP_OK;
 
 // Applies software gain with clipping.
 static int32_t s_apply_gain(int32_t sample)
@@ -61,6 +72,64 @@ static void s_log_error(const char *fmt, ...)
     va_end(args);
     ESP_LOGE(TAG, "%s", buf);
     oled_ssd1306_display_text(buf);
+}
+
+static void s_mic_task_entry(void *arg)
+{
+    mic_capture_args_t *args = (mic_capture_args_t *)arg;
+    int captured_seconds = 0;
+    esp_err_t result = mic_capture_to_file(args->path, args->seconds, &captured_seconds);
+    s_mic_last_seconds = captured_seconds;
+    s_mic_last_result = result;
+    s_mic_running = false;
+    s_mic_task = NULL;
+    free(args);
+    vTaskDelete(NULL);
+}
+
+esp_err_t mic_capture_start(const char *path, int seconds)
+{
+    if (s_mic_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    mic_capture_args_t *args = (mic_capture_args_t *)calloc(1, sizeof(*args));
+    if (args == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    strlcpy(args->path, path, sizeof(args->path));
+    args->seconds = seconds;
+    s_mic_running = true;
+    s_mic_last_seconds = 0;
+    s_mic_last_result = ESP_OK;
+
+    if (xTaskCreate(s_mic_task_entry, "mic_record", 4096, args, 5, &s_mic_task) != pdPASS) {
+        s_mic_running = false;
+        free(args);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+bool mic_capture_is_running(void)
+{
+    return s_mic_running;
+}
+
+esp_err_t mic_capture_wait(int *out_seconds, TickType_t timeout)
+{
+    const TickType_t start = xTaskGetTickCount();
+    while (s_mic_running) {
+        if (timeout != portMAX_DELAY && (xTaskGetTickCount() - start) > timeout) {
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (out_seconds != NULL) {
+        *out_seconds = s_mic_last_seconds;
+    }
+    return s_mic_last_result;
 }
 
 // Writes a 16-bit little-endian value to a file.

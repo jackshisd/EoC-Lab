@@ -1,18 +1,9 @@
 dependencies:
   espressif/esp32-camera:
-    component_hash: 
-      f0a608b109935a5389221eee5090ec61f51b0df1a0749531fe59d33aaf263233
-    dependencies:
-    - name: espressif/esp_jpeg
-      registry_url: https://components.espressif.com
-      require: public
-      version: ^1.3.1
-    - name: idf
-      require: private
-      version: '>=5.1'
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com/
-      type: service
+      path: /Users/Jack/EoC-Lab/components/espressif__esp32-camera
+      type: local
     version: 2.1.4
   espressif/esp_jpeg:
     component_hash: 
@@ -22,7 +13,7 @@ dependencies:
       require: private
       version: '>=5.0'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 1.3.1
   espressif/esp_tinyusb:
@@ -67,7 +58,9 @@ dependencies:
     version: 5.5.2
 direct_dependencies:
 - espressif/esp32-camera
+- espressif/esp_jpeg
 - espressif/esp_tinyusb
-manifest_hash: d9a73ec4180cd507b6095e2a65a5bb5ff7eee74830786e4da5141fb834bc01f7
+- idf
+manifest_hash: 514b749a5d0c68b522c53def60ea337a3f9a5e3903fefa03c45d4cb7f8d67ec4
 target: esp32s3
 version: 2.0.0

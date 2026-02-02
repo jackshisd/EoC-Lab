@@ -86,6 +86,33 @@ GND           | GND
 I2C address is `0x3C`.
 Note: On ESP32-S3-DevKitC-1, GPIO41/42 are JTAG pins. Disable JTAG in `idf.py menuconfig` so they can be used for I2C.
 
+### Camera (OV2640, Waveshare)
+
+This project uses OV2640 over SCCB (I2C). The camera is sensitive to pin choice and initial frames are often corrupted.
+
+**Working pin map (ESP32-S3):**
+
+ESP32-S3 pin | OV2640 pin | Notes
+-------------|------------|------
+GPIO47       | SCCB SDA   | Camera I2C data
+GPIO48       | SCCB SCL   | Camera I2C clock
+GPIO3        | XCLK       | External clock (10 MHz)
+
+PWDN and RESET are tied in hardware (PWDN -> GND, RESET -> 3.3V). In software, they are disabled (set to `-1`).
+
+**What was broken and how it was fixed:**
+
+- SCCB was originally on GPIO36/37, which are used internally by Octal flash/PSRAM on ESP32-S3-WROOM-2, so SCCB traffic failed.
+  Fix: move SCCB to GPIO47/48 and set `sccb_i2c_port = I2C_NUM_0`.
+- OLED and camera shared an I2C bus, and we mixed old I2C driver with a driver_ng wrapper, causing a runtime abort.
+  Fix: split buses (OLED on I2C1 GPIO41/42, camera SCCB on I2C0 GPIO47/48) and remove SCCB mutex usage.
+- Early frames were corrupted (NO-SOI/NO-EOI) and were written to file.
+  Fix: discard the first 10 frames after init and only write frames with valid SOI/EOI markers.
+- FATFS without LFN rejected long filenames.
+  Fix: use 8.3 filename `VID0001.MJP`.
+
+**Playback note:** `VIDxxxx.MJP` is a raw MJPEG stream (not a container). VLC can play it; for QuickTime, convert to AVI/MP4.
+
 ### Button + buzzer
 
 ESP32-S3 pin  | Device
