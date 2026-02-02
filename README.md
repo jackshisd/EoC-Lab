@@ -1,26 +1,40 @@
 | Supported Targets | ESP32 | ESP32-P4 | ESP32-S3 |
 | ----------------- | ----- | -------- | -------- |
 
-# SD Card + Mic Recorder + OLED (ESP32-S3)
+# ESP32-S3 SD + Mic + OV2640 Recorder
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+__WARNING:__ This project writes audio/video files to the SD card. Back up your data before testing.
 
-__WARNING:__ This project writes audio files to the SD card. Back up your data before testing.
+Records:
+- **Audio**: WAV via I2S mic (ICS-43434), `mic_0001.wav`, `mic_0002.wav`, ...
+- **Video**: MJPEG via OV2640, `VID0001.MJP`, `VID0002.MJP`, ...
 
-This project records microphone audio to WAV files on an SD card. It uses:
+Core features:
+- SDMMC FAT mount/unmount
+- USB MSC to expose the SD card when idle
+- SSD1306 I2C OLED status
+- Button + buzzer UI
 
-1. SDMMC for FAT filesystem mount/unmount.
-2. I2S mic capture (ICS-43434) to `mic_0001.wav`, `mic_0002.wav`, etc.
-3. A button with short/long press logic.
-4. A passive buzzer for audio feedback on each press.
-5. An SSD1306 I2C OLED that mirrors log messages.
-6. USB MSC to expose the SD card to a host when idle.
+Supports SD (SDSC, SDHC, SDXC) cards and eMMC.
 
-This project supports SD (SDSC, SDHC, SDXC) cards and eMMC chips.
+## Quick wiring map (ESP32-S3)
+
+- **SD card:** GPIO4/5/6/7/15/16 (SDMMC)
+- **Mic (I2S):** GPIO19/20/21
+- **OLED (I2C):** GPIO41/42 (addr `0x3C`)
+- **Camera (OV2640 SCCB):**
+  - SCCB SDA: GPIO47
+  - SCCB SCL: GPIO48
+  - XCLK: GPIO3 (10 MHz)
+  - D0..D7: GPIO8, 9, 10, 11, 12, 13, 14, 17
+  - PCLK: GPIO18
+  - VSYNC: GPIO21
+  - HREF: GPIO46
+  - PWDN/RESET: tied in hardware (PWDN → GND, RESET → 3.3V)
 
 ## Hardware
 
-This project targets ESP32-S3 and uses an SD card breakout or slot plus an I2S mic and OLED.
+This project targets ESP32-S3 and uses an SD card breakout or slot, an I2S mic, an SSD1306 OLED, and an OV2640 camera.
 
 Although it is possible to connect an SD card breakout adapter, keep in mind that connections using breakout cables are often unreliable and have poor signal integrity. You may need to use lower clock frequency when working with SD card breakout adapters.
 
@@ -86,7 +100,7 @@ GND           | GND
 I2C address is `0x3C`.
 Note: On ESP32-S3-DevKitC-1, GPIO41/42 are JTAG pins. Disable JTAG in `idf.py menuconfig` so they can be used for I2C.
 
-### Camera (OV2640, Waveshare)
+### Camera (OV2640, Waveshare) — read this first
 
 This project uses OV2640 over SCCB (I2C). The camera is sensitive to pin choice and initial frames are often corrupted.
 
@@ -97,6 +111,17 @@ ESP32-S3 pin | OV2640 pin | Notes
 GPIO47       | SCCB SDA   | Camera I2C data
 GPIO48       | SCCB SCL   | Camera I2C clock
 GPIO3        | XCLK       | External clock (10 MHz)
+GPIO8        | D0         | Data bit 0
+GPIO9        | D1         | Data bit 1
+GPIO10       | D2         | Data bit 2
+GPIO11       | D3         | Data bit 3
+GPIO12       | D4         | Data bit 4
+GPIO13       | D5         | Data bit 5
+GPIO14       | D6         | Data bit 6
+GPIO17       | D7         | Data bit 7
+GPIO18       | PCLK       | Pixel clock
+GPIO21       | VSYNC      | Frame sync
+GPIO46       | HREF       | Line sync
 
 PWDN and RESET are tied in hardware (PWDN -> GND, RESET -> 3.3V). In software, they are disabled (set to `-1`).
 
@@ -198,6 +223,17 @@ idf.py -p PORT flash monitor
 4. A later long press repeats the cycle with a new filename.
 
 Short press toggles pause/resume during recording. Each press produces a short beep.
+
+### SD card mount warnings
+
+If SD mounting fails or is not ready, the OLED shows a warning:
+
+- `SD init failed`
+- `SD mount failed`
+- `SD not ready`
+
+When these appear, re-seat the SD card and try again. Also wait for the
+`Exposing SD card over USB` log before unplugging or copying files.
 
 See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
 
