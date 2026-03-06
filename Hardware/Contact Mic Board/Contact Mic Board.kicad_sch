@@ -2687,6 +2687,107 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "power:PWR_FLAG"
+			(power)
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(property "Reference" "#FLG"
+				(at 0 1.905 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Value" "PWR_FLAG"
+				(at 0 3.81 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" ""
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Datasheet" "~"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "Description" "Special symbol for telling ERC where power comes from"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(property "ki_keywords" "flag power"
+				(at 0 0 0)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(hide yes)
+				)
+			)
+			(symbol "PWR_FLAG_0_0"
+				(pin power_out line
+					(at 0 0 90)
+					(length 0)
+					(name "~"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(symbol "PWR_FLAG_0_1"
+				(polyline
+					(pts
+						(xy 0 0) (xy 0 1.27) (xy -1.016 1.905) (xy 0 2.54) (xy 1.016 1.905) (xy 0 1.27)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 	)
 	(junction
 		(at 166.37 87.63)
@@ -2773,6 +2874,12 @@
 		(uuid "400fc5aa-0b27-44bc-9091-8b5833370ff6")
 	)
 	(junction
+		(at 72.39 81.28)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "433a8ba0-f8c0-4156-ae19-2c42f25ecde7")
+	)
+	(junction
 		(at 186.69 54.61)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -2819,6 +2926,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "622aa5cf-6cd2-4302-9eac-ae370638de3b")
+	)
+	(junction
+		(at 109.22 99.06)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "64a7f1a4-f871-4809-ada1-7f816120adc1")
 	)
 	(junction
 		(at 129.54 46.99)
@@ -2897,6 +3010,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "9120e37d-9a9a-4072-a8df-e292d26faba6")
+	)
+	(junction
+		(at 157.48 46.99)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "9492b76e-b5f7-4335-b746-ab2af509ff82")
 	)
 	(junction
 		(at 135.89 46.99)
@@ -3702,6 +3821,16 @@
 	)
 	(wire
 		(pts
+			(xy 109.22 99.06) (xy 109.22 92.71)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "6961e449-19e4-49f3-832a-d8fd69ff5b8f")
+	)
+	(wire
+		(pts
 			(xy 199.39 95.25) (xy 201.93 95.25)
 		)
 		(stroke
@@ -3849,6 +3978,16 @@
 			(type default)
 		)
 		(uuid "79ff0e76-b7ce-4efa-8cc1-7a51be71dd96")
+	)
+	(wire
+		(pts
+			(xy 72.39 82.55) (xy 72.39 81.28)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "7e433a8a-3fac-4d14-b61e-5f3440588fbf")
 	)
 	(wire
 		(pts
@@ -4052,7 +4191,7 @@
 	)
 	(wire
 		(pts
-			(xy 109.22 104.14) (xy 109.22 92.71)
+			(xy 109.22 104.14) (xy 109.22 99.06)
 		)
 		(stroke
 			(width 0)
@@ -4412,6 +4551,16 @@
 	)
 	(wire
 		(pts
+			(xy 72.39 81.28) (xy 72.39 77.47)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d136ea5d-c10f-4144-a02b-ad1837ba1b70")
+	)
+	(wire
+		(pts
 			(xy 182.88 85.09) (xy 182.88 80.01)
 		)
 		(stroke
@@ -4509,6 +4658,16 @@
 			(type default)
 		)
 		(uuid "eaa78b1b-2ced-4718-a4bd-e507ba8946ba")
+	)
+	(wire
+		(pts
+			(xy 77.47 81.28) (xy 72.39 81.28)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "ec39c949-33bb-4e38-86c1-4ea4f8b7e17a")
 	)
 	(wire
 		(pts
@@ -5750,6 +5909,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:PWR_FLAG")
+		(at 109.22 99.06 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "5717fcfb-99a4-4275-9ca7-2a6771ccbc1e")
+		(property "Reference" "#FLG02"
+			(at 107.315 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "PWR_FLAG"
+			(at 110.236 96.012 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 109.22 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 109.22 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Special symbol for telling ERC where power comes from"
+			(at 109.22 99.06 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "1fbb57f3-0535-43df-840c-84bd06de0154")
+		)
+		(instances
+			(project "Contact Mic Board"
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "#FLG02")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:C_Small")
 		(at 87.63 104.14 0)
 		(unit 1)
@@ -6302,6 +6527,72 @@
 		)
 	)
 	(symbol
+		(lib_id "power:PWR_FLAG")
+		(at 157.48 46.99 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "7f0e068f-3e59-4534-98b0-18022b752508")
+		(property "Reference" "#FLG03"
+			(at 157.48 45.085 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "PWR_FLAG"
+			(at 157.48 41.91 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" ""
+			(at 157.48 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 157.48 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Special symbol for telling ERC where power comes from"
+			(at 157.48 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "4a0c4ab0-1576-4601-b63e-d0f3625e97a9")
+		)
+		(instances
+			(project "Contact Mic Board"
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "#FLG03")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R_Small_US")
 		(at 99.06 62.23 90)
 		(unit 1)
@@ -6566,6 +6857,74 @@
 			(project "Contact Mic Board"
 				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
 					(reference "C3")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 82.55 81.28 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "87ce28f9-c408-428d-a137-204fa1c04dff")
+		(property "Reference" "#PWR07"
+			(at 88.9 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "GND"
+			(at 86.36 81.2801 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+				(hide yes)
+			)
+		)
+		(property "Footprint" ""
+			(at 82.55 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" ""
+			(at 82.55 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 82.55 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "ef7e15c7-ec01-4e5e-acdb-3ef38a3f3d30")
+		)
+		(instances
+			(project "Contact Mic Board"
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "#PWR07")
 					(unit 1)
 				)
 			)
@@ -7207,6 +7566,75 @@
 	)
 	(symbol
 		(lib_id "Device:C_Polarized_Small_US")
+		(at 80.01 81.28 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "a7f15742-cf30-4081-9e22-a7e1531fea83")
+		(property "Reference" "C20"
+			(at 78.74 83.82 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "10uF"
+			(at 85.09 83.82 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Capacitor_SMD:C_0402_1005Metric"
+			(at 80.01 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 80.01 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Polarized capacitor, small US symbol"
+			(at 80.01 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "db310189-036f-491e-8e1c-5a5353c56877")
+		)
+		(pin "2"
+			(uuid "8421b9fd-894f-4046-99a1-d0b85eabbece")
+		)
+		(instances
+			(project "Contact Mic Board"
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "C20")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Device:C_Polarized_Small_US")
 		(at 76.2 38.1 180)
 		(unit 1)
 		(exclude_from_sim no)
@@ -7410,16 +7838,15 @@
 	)
 	(symbol
 		(lib_id "Connector:TestPoint")
-		(at 72.39 77.47 180)
+		(at 72.39 82.55 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom no)
 		(on_board yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "ada2a389-a3d4-4a19-9f58-844fad0ee619")
 		(property "Reference" "TP2"
-			(at 74.93 79.5019 0)
+			(at 69.088 84.074 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7428,7 +7855,7 @@
 			)
 		)
 		(property "Value" "TestPoint"
-			(at 74.93 82.0419 0)
+			(at 74.93 87.1219 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7438,7 +7865,7 @@
 			)
 		)
 		(property "Footprint" "TestPoint:TestPoint_Pad_1.0x1.0mm"
-			(at 67.31 77.47 0)
+			(at 67.31 82.55 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7447,7 +7874,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 67.31 77.47 0)
+			(at 67.31 82.55 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -7456,7 +7883,7 @@
 			)
 		)
 		(property "Description" "test point"
-			(at 72.39 77.47 0)
+			(at 72.39 82.55 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -8488,6 +8915,140 @@
 			(project ""
 				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
 					(reference "C1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:PWR_FLAG")
+		(at 72.39 46.99 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "d7097746-db5d-4307-96da-1f44669972a8")
+		(property "Reference" "#FLG04"
+			(at 70.485 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "PWR_FLAG"
+			(at 68.58 46.9899 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 72.39 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 72.39 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Special symbol for telling ERC where power comes from"
+			(at 72.39 46.99 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "d290bede-217a-4909-a301-bc15314c9d97")
+		)
+		(instances
+			(project "Contact Mic Board"
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "#FLG04")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:PWR_FLAG")
+		(at 72.39 81.28 90)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "dec13e4d-2efb-450b-b07b-dbaa1e810757")
+		(property "Reference" "#FLG01"
+			(at 70.485 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Value" "PWR_FLAG"
+			(at 68.58 81.2799 90)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" ""
+			(at 72.39 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Datasheet" "~"
+			(at 72.39 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property "Description" "Special symbol for telling ERC where power comes from"
+			(at 72.39 81.28 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin "1"
+			(uuid "e02ec20e-6331-4739-a6b7-f3319c34df70")
+		)
+		(instances
+			(project ""
+				(path "/50407473-947a-49bd-ae84-fce1e994ad26"
+					(reference "#FLG01")
 					(unit 1)
 				)
 			)
