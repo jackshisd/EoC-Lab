@@ -143,7 +143,7 @@ static void s_ble_start_scan(void)
     struct ble_gap_disc_params params = {
         .itvl = 0x0010,
         .window = 0x0010,
-        .filter_duplicates = 1,
+        .filter_duplicates = 0,
         .passive = 1,
     };
     int rc = ble_gap_disc(s_ble_own_addr_type, BLE_HS_FOREVER, &params, s_ble_gap_event, NULL);
