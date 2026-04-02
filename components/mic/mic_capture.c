@@ -18,8 +18,8 @@
 
 #define I2S_SAMPLE_RATE_HZ 16000 // Sample rate
 #define I2S_BCLK_IO        38 // Bit clock
-#define I2S_WS_IO          39 // Also known as LRCK
-#define I2S_DIN_IO         40 // Microphone data input
+#define I2S_WS_IO          40 // Also known as LRCK
+#define I2S_DIN_IO         39 // Microphone data input
 #define MIC_GAIN_MULT      4  // Microphone gain multiplier
 
 static const char *TAG = "mic";

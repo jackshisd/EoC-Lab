@@ -10,8 +10,8 @@
 #include "i2c_bus.h"
 
 #define OLED_I2C_ADDR 0x3C
-#define OLED_SDA_GPIO 41
-#define OLED_SCL_GPIO 42
+#define OLED_SDA_GPIO 1
+#define OLED_SCL_GPIO 2
 #define OLED_I2C_FREQ_HZ 100000
 
 #define OLED_WIDTH 128

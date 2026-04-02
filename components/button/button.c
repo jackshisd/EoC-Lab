@@ -10,7 +10,7 @@
 #include "esp_log.h"
 #include "oled_ssd1306.h"
 
-#define BUTTON_GPIO GPIO_NUM_1
+#define BUTTON_GPIO GPIO_NUM_45
 #define BUZZER_GPIO GPIO_NUM_2
 #define DEBOUNCE_MS 30
 #define LONG_PRESS_MS 500
