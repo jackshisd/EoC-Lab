@@ -139,43 +139,6 @@ static char const *string_desc_arr[] = {
 static tinyusb_msc_storage_handle_t s_storage_hdl;
 static tinyusb_config_t s_tusb_cfg;
 static bool s_usb_active;
-static bool s_oled_ready;
-static bool s_button_oled_ready;
-static char s_oled_bringup_lines[4][21];
-
-static void s_oled_push_status(const char *line)
-{
-    if (!line) {
-        return;
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        memcpy(s_oled_bringup_lines[i], s_oled_bringup_lines[i + 1], sizeof(s_oled_bringup_lines[i]));
-    }
-    snprintf(s_oled_bringup_lines[3], sizeof(s_oled_bringup_lines[3]), "%s", line);
-
-    if (!s_oled_ready) {
-        return;
-    }
-
-    char text[96];
-    snprintf(text, sizeof(text), "%s\n%s\n%s\n%s",
-             s_oled_bringup_lines[0],
-             s_oled_bringup_lines[1],
-             s_oled_bringup_lines[2],
-             s_oled_bringup_lines[3]);
-    oled_ssd1306_display_text(text);
-
-    if (s_button_oled_ready) {
-        char tail[64];
-        snprintf(tail, sizeof(tail), "%s\n%s\n%s",
-                 s_oled_bringup_lines[1],
-                 s_oled_bringup_lines[2],
-                 s_oled_bringup_lines[3]);
-        button_set_idle_display(s_oled_bringup_lines[0], tail);
-    }
-}
-
 // Writes a test string to a file on the SD card.
 static esp_err_t s_example_write_file(const char *path, char *data)
 {
@@ -388,48 +351,36 @@ void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "Bring-up: i2c_bus_init done");
-    s_oled_push_status("I2C OK");
 
     ESP_LOGI(TAG, "Initializing SD card");
     ESP_LOGI(TAG, "Bring-up: camera_app_init begin");
     if (camera_app_init() != ESP_OK) {
         ESP_LOGE(TAG, "Camera disabled");
-        s_oled_push_status("CAM FAIL");
     }
     ESP_LOGI(TAG, "Bring-up: camera_app_init done");
-    s_oled_push_status("CAM OK");
 
     ESP_LOGI(TAG, "Bring-up: oled_ssd1306_init begin");
     if (oled_ssd1306_init() != ESP_OK) {
         ESP_LOGE(TAG, "OLED init failed");
-    } else {
-        s_oled_ready = true;
-        memset(s_oled_bringup_lines, 0, sizeof(s_oled_bringup_lines));
-        s_oled_push_status("OLED OK");
     }
     ESP_LOGI(TAG, "Bring-up: oled_ssd1306_init done");
 
     ESP_LOGI(TAG, "Bring-up: button_init begin");
     button_init();
     ESP_LOGI(TAG, "Bring-up: button_init done");
-    s_button_oled_ready = true;
-    s_oled_push_status("BTN OK");
 
     ESP_LOGI(TAG, "Bring-up: ble_trigger_init begin");
     ble_trigger_init();
     ESP_LOGI(TAG, "Bring-up: ble_trigger_init done");
-    s_oled_push_status("BLE OK");
 
     sdmmc_card_t *card = NULL;
     ESP_LOGI(TAG, "Bring-up: s_storage_init_sdmmc begin");
     ret = s_storage_init_sdmmc(&card);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init SD card (%s)", esp_err_to_name(ret));
-        s_oled_push_status("SD FAIL");
         return;
     }
     ESP_LOGI(TAG, "Bring-up: s_storage_init_sdmmc done");
-    s_oled_push_status("SD OK");
 
     tinyusb_msc_storage_config_t storage_cfg = {
         .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
@@ -444,7 +395,6 @@ void app_main(void)
     ESP_LOGI(TAG, "Bring-up: tinyusb_msc_new_storage_sdmmc begin");
     ESP_ERROR_CHECK(tinyusb_msc_new_storage_sdmmc(&storage_cfg, &s_storage_hdl));
     ESP_LOGI(TAG, "Bring-up: tinyusb_msc_new_storage_sdmmc done");
-    s_oled_push_status("MSC CFG OK");
 
     s_tusb_cfg = (tinyusb_config_t)TINYUSB_DEFAULT_CONFIG();
     s_tusb_cfg.descriptor.device = &descriptor_config;
@@ -459,17 +409,14 @@ void app_main(void)
     ESP_LOGI(TAG, "Bring-up: s_switch_mount APP begin");
     ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP));
     ESP_LOGI(TAG, "Bring-up: s_switch_mount APP done");
-    s_oled_push_status("APP MOUNT OK");
 #if ENABLE_TINYUSB_MSC
     ESP_LOGI(TAG, "Bring-up: s_usb_start begin");
     ESP_ERROR_CHECK(s_usb_start());
     ESP_LOGI(TAG, "Bring-up: s_usb_start done");
-    s_oled_push_status("USB OK");
     ESP_LOGI(TAG, "Exposing SD card over USB");
     ESP_LOGI(TAG, "Bring-up: s_switch_mount USB begin");
     ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB));
     ESP_LOGI(TAG, "Bring-up: s_switch_mount USB done");
-    s_oled_push_status("USB MOUNT OK");
 #endif
 
     uint32_t file_index = 1;
@@ -536,11 +483,13 @@ void app_main(void)
                 const char *filename = strrchr(mic_path, '/');
                 if (filename != NULL) {
                     filename++;
-                } else {
+                } else if (mic_path[0] != '\0') {
                     filename = mic_path;
+                } else {
+                    filename = "unnamed file";
                 }
                 snprintf(line1, sizeof(line1), "Recorded %ds at", captured_seconds);
-                button_set_idle_display(line1, filename);
+                button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
                 if (use_index_name) {
                     file_index++;
                 }

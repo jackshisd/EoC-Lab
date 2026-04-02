@@ -17,7 +17,6 @@
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 32
 #define OLED_PAGES (OLED_HEIGHT / 8)
-
 static const char *TAG = "oled";
 
 static const uint8_t s_font5x7[] = {

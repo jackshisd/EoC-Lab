@@ -219,7 +219,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
             },
         },
     };
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
 
     ret = i2s_channel_init_std_mode(rx_handle, &std_cfg);
     if (ret != ESP_OK) {

@@ -1,9 +1,9 @@
 #include "button.h"
 
+#include <stdio.h>
 #include <stdint.h>
 
 #include "driver/gpio.h"
-#include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_err.h"
@@ -11,12 +11,8 @@
 #include "oled_ssd1306.h"
 
 #define BUTTON_GPIO GPIO_NUM_45
-#define BUZZER_GPIO GPIO_NUM_2
 #define DEBOUNCE_MS 30
 #define LONG_PRESS_MS 500
-#define BUZZER_PULSE_MS 50
-#define BUZZER_FREQ_HZ 2000
-#define BUZZER_DUTY_RES LEDC_TIMER_10_BIT
 
 static const char *TAG = "button";
 
@@ -26,21 +22,22 @@ static volatile TickType_t s_record_start_tick = 0;
 static char s_status_line[64] = "Ready";
 static TickType_t s_oled_next_retry_tick = 0;
 static uint8_t s_oled_fail_count = 0;
+static char s_oled_last_text[64];
+
+static void s_log_oled_error_to_sd(esp_err_t err)
+{
+    FILE *f = fopen("/sdcard/oled_err.txt", "a");
+    if (f == NULL) {
+        return;
+    }
+    fprintf(f, "oled write failed: %s (%d)\n", esp_err_to_name(err), (int)err);
+    fclose(f);
+}
 
 // Logs button state changes to the console.
 static void s_log_info(const char *text)
 {
     ESP_LOGI(TAG, "%s", text);
-}
-
-// Plays a short buzzer pulse for feedback.
-static void s_buzzer_pulse(void)
-{
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, (1 << BUZZER_DUTY_RES) / 2);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-    vTaskDelay(pdMS_TO_TICKS(BUZZER_PULSE_MS));
-    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0);
-    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
 static void s_handle_short_press(void)
@@ -49,7 +46,6 @@ static void s_handle_short_press(void)
         s_paused = !s_paused;
         s_log_info(s_paused ? "Paused" : "Recording");
     }
-    s_buzzer_pulse();
 }
 
 static void s_handle_long_press(void)
@@ -64,7 +60,6 @@ static void s_handle_long_press(void)
         s_record_start_tick = xTaskGetTickCount();
         s_log_info("Recording started");
     }
-    s_buzzer_pulse();
 }
 
 // Updates the OLED with timer/status once per second.
@@ -90,15 +85,27 @@ static void s_oled_task(void *arg)
                      (unsigned long)minutes,
                      (unsigned long)seconds,
                      line2);
-            ret = oled_ssd1306_display_text(buffer);
+            if (strcmp(buffer, s_oled_last_text) == 0) {
+                ret = ESP_OK;
+            } else {
+                ret = oled_ssd1306_display_text(buffer);
+                if (ret == ESP_OK) {
+                    snprintf(s_oled_last_text, sizeof(s_oled_last_text), "%s", buffer);
+                }
+            }
         } else {
-            ret = oled_ssd1306_display_text(s_status_line);
+            if (strcmp(s_status_line, s_oled_last_text) == 0) {
+                ret = ESP_OK;
+            } else {
+                ret = oled_ssd1306_display_text(s_status_line);
+                if (ret == ESP_OK) {
+                    snprintf(s_oled_last_text, sizeof(s_oled_last_text), "%s", s_status_line);
+                }
+            }
         }
         if (ret != ESP_OK) {
+            s_log_oled_error_to_sd(ret);
             s_oled_fail_count++;
-            if (s_oled_fail_count == 1) {
-                oled_ssd1306_init();
-            }
             if (s_oled_fail_count >= 3) {
                 s_oled_next_retry_tick = xTaskGetTickCount() + pdMS_TO_TICKS(5000);
                 s_oled_fail_count = 0;
@@ -141,7 +148,7 @@ static void s_button_task(void *arg)
     }
 }
 
-// Initializes GPIO, buzzer, and background tasks.
+// Initializes GPIO and background tasks.
 void button_init(void)
 {
     gpio_config_t cfg = {
@@ -152,26 +159,6 @@ void button_init(void)
         .intr_type = GPIO_INTR_DISABLE,
     };
     gpio_config(&cfg);
-
-    ledc_timer_config_t buzzer_timer = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .timer_num = LEDC_TIMER_0,
-        .duty_resolution = BUZZER_DUTY_RES,
-        .freq_hz = BUZZER_FREQ_HZ,
-        .clk_cfg = LEDC_AUTO_CLK,
-    };
-    ledc_timer_config(&buzzer_timer);
-
-    ledc_channel_config_t buzzer_channel = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .channel = LEDC_CHANNEL_0,
-        .timer_sel = LEDC_TIMER_0,
-        .intr_type = LEDC_INTR_DISABLE,
-        .gpio_num = BUZZER_GPIO,
-        .duty = 0,
-        .hpoint = 0,
-    };
-    ledc_channel_config(&buzzer_channel);
 
     xTaskCreate(s_button_task, "button_task", 4096, NULL, 10, NULL);
     xTaskCreate(s_oled_task, "oled_task", 4096, NULL, 5, NULL);
