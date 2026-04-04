@@ -21,6 +21,7 @@
 #include "host/util/util.h"
 #endif
 
+#define ENABLE_BLE_TRIGGER 1
 #define BLE_TRIGGER_DEBOUNCE_MS 500
 
 static const char *TAG = "ble_trigger";
@@ -141,7 +142,7 @@ static int s_ble_gap_event(struct ble_gap_event *event, void *arg)
 static void s_ble_start_scan(void)
 {
     struct ble_gap_disc_params params = {
-        .itvl = 0x0010,
+        .itvl = 0x0040,
         .window = 0x0010,
         .filter_duplicates = 0,
         .passive = 1,
@@ -168,7 +169,7 @@ static void s_ble_host_task(void *param)
 
 void ble_trigger_init(void)
 {
-#if CONFIG_BT_NIMBLE_ENABLED
+#if CONFIG_BT_NIMBLE_ENABLED && ENABLE_BLE_TRIGGER
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -187,6 +188,8 @@ void ble_trigger_init(void)
     ble_hs_cfg.sync_cb = s_ble_on_sync;
     nimble_port_freertos_init(s_ble_host_task);
     ESP_LOGI(TAG, "BLE trigger scan started");
+#elif CONFIG_BT_NIMBLE_ENABLED
+    ESP_LOGW(TAG, "BLE trigger disabled by ENABLE_BLE_TRIGGER=0");
 #else
     ESP_LOGW(TAG, "BLE trigger disabled (CONFIG_BT_NIMBLE_ENABLED=0)");
 #endif

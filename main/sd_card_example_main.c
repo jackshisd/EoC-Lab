@@ -10,6 +10,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -29,6 +30,7 @@
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
 #include "sd_test_io.h"
+#include "esp_system.h"
 #if SOC_SDMMC_IO_POWER_EXTERNAL
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #endif
@@ -40,6 +42,7 @@ static const char *TAG = "example";
 #define MOUNT_POINT "/sdcard"
 #define EXAMPLE_IS_UHS1    (CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_SDR50 || CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_DDR50)
 #define ENABLE_TINYUSB_MSC 1
+#define SHOW_RESET_CAUSE_ON_OLED 1
 
 #define OLED_I2C_SDA       1
 #define OLED_I2C_SCL       2
@@ -139,6 +142,40 @@ static char const *string_desc_arr[] = {
 static tinyusb_msc_storage_handle_t s_storage_hdl;
 static tinyusb_config_t s_tusb_cfg;
 static bool s_usb_active;
+
+static const char *s_reset_reason_name(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_POWERON: return "POWERON";
+        case ESP_RST_EXT: return "EXT";
+        case ESP_RST_SW: return "SW";
+        case ESP_RST_PANIC: return "PANIC";
+        case ESP_RST_INT_WDT: return "INT_WDT";
+        case ESP_RST_TASK_WDT: return "TASK_WDT";
+        case ESP_RST_WDT: return "WDT";
+        case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT: return "BROWNOUT";
+        case ESP_RST_SDIO: return "SDIO";
+        default: return "UNKNOWN";
+    }
+}
+
+static void s_append_event_log(const char *fmt, ...)
+{
+    FILE *f = fopen(MOUNT_POINT"/rec_event.txt", "a");
+    if (f == NULL) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+}
+
 // Writes a test string to a file on the SD card.
 static esp_err_t s_example_write_file(const char *path, char *data)
 {
@@ -333,6 +370,46 @@ static void s_usb_stop(void)
 #endif
 }
 
+static void s_handle_record_failure(const char *line1, const char *line2,
+                                    const char *reason, uint32_t *failure_count)
+{
+    if (failure_count != NULL) {
+        (*failure_count)++;
+    }
+
+    ESP_LOGW(TAG, "Recording recovery: %s (count=%lu)", reason,
+             (unsigned long)(failure_count ? *failure_count : 0));
+    s_append_event_log("main: recovery begin reason=%s count=%lu", reason,
+                       (unsigned long)(failure_count ? *failure_count : 0));
+
+    button_force_idle();
+    button_set_idle_display(line1, line2);
+
+    camera_app_wait_for_stop();
+    s_append_event_log("main: recovery camera stop done");
+
+    s_usb_stop();
+    esp_err_t ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP);
+    s_append_event_log("main: recovery switch app %s", esp_err_to_name(ret));
+    bool mount_ready = s_wait_for_mount(MOUNT_POINT, 2000);
+    s_append_event_log("main: recovery app mount ready=%d", mount_ready);
+
+#if ENABLE_TINYUSB_MSC
+    if (failure_count != NULL && *failure_count >= 3) {
+        ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB);
+        s_append_event_log("main: recovery switch usb %s", esp_err_to_name(ret));
+        ret = s_usb_start();
+        s_append_event_log("main: recovery usb start %s", esp_err_to_name(ret));
+        vTaskDelay(pdMS_TO_TICKS(300));
+        s_usb_stop();
+        ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP);
+        s_append_event_log("main: recovery switch app retry %s", esp_err_to_name(ret));
+        mount_ready = s_wait_for_mount(MOUNT_POINT, 2000);
+        s_append_event_log("main: recovery app mount retry ready=%d", mount_ready);
+    }
+#endif
+}
+
 
 // Initializes peripherals and handles record/USB switching loop.
 void app_main(void)
@@ -362,6 +439,13 @@ void app_main(void)
     ESP_LOGI(TAG, "Bring-up: oled_ssd1306_init begin");
     if (oled_ssd1306_init() != ESP_OK) {
         ESP_LOGE(TAG, "OLED init failed");
+    } else {
+#if SHOW_RESET_CAUSE_ON_OLED
+        char boot_msg[64];
+        snprintf(boot_msg, sizeof(boot_msg), "Boot\n%s", s_reset_reason_name(esp_reset_reason()));
+        oled_ssd1306_display_text(boot_msg);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+#endif
     }
     ESP_LOGI(TAG, "Bring-up: oled_ssd1306_init done");
 
@@ -381,6 +465,7 @@ void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "Bring-up: s_storage_init_sdmmc done");
+    s_append_event_log("boot: reset_reason=%d", (int)esp_reset_reason());
 
     tinyusb_msc_storage_config_t storage_cfg = {
         .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
@@ -420,16 +505,20 @@ void app_main(void)
 #endif
 
     uint32_t file_index = 1;
+    uint32_t consecutive_record_failures = 0;
     while (true) {
         while (!button_is_recording()) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
+        s_append_event_log("main: recording loop start");
 
         ESP_LOGI(TAG, "Disabling USB and mounting SD card for recording");
         s_usb_stop();
         ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to mount to app (%s)", esp_err_to_name(ret));
+            s_handle_record_failure("Recording failed", "sd mount failed",
+                                    "switch mount app failed", &consecutive_record_failures);
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
@@ -451,6 +540,10 @@ void app_main(void)
 
         if (!s_wait_for_mount(MOUNT_POINT, 2000)) {
             ESP_LOGE(TAG, "Mount not ready for %s", MOUNT_POINT);
+            s_handle_record_failure("Recording failed", "sd not ready",
+                                    "mount path not ready", &consecutive_record_failures);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
 
         if (camera_app_is_ready() && !camera_app_is_recording()) {
@@ -459,48 +552,66 @@ void app_main(void)
                 ESP_LOGW(TAG, "Timestamped video name failed (%s); using index", esp_err_to_name(cam_ret));
                 snprintf(video_path, sizeof(video_path), MOUNT_POINT"/VID%04u.MJP", (unsigned)file_index);
                 use_index_name = true;
-                camera_app_start_record(video_path);
+                cam_ret = camera_app_start_record(video_path);
+            }
+            if (cam_ret != ESP_OK) {
+                ESP_LOGE(TAG, "Camera record start failed (%s)", esp_err_to_name(cam_ret));
+                s_append_event_log("main: camera_app_start_record failed %s", esp_err_to_name(cam_ret));
+                s_handle_record_failure("Recording failed", "camera start failed",
+                                        "camera start failed", &consecutive_record_failures);
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
             }
         }
         int captured_seconds = 0;
         ret = mic_capture_start(mic_path, 0);
+        if (ret != ESP_OK && !use_index_name) {
+            ESP_LOGW(TAG, "Timestamped mic name failed (%s); using index", esp_err_to_name(ret));
+            snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
+            use_index_name = true;
+            ret = mic_capture_start(mic_path, 0);
+        }
         if (ret != ESP_OK) {
-            if (!use_index_name) {
-                ESP_LOGW(TAG, "Timestamped mic name failed (%s); using index", esp_err_to_name(ret));
-                snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
-                use_index_name = true;
-                ret = mic_capture_start(mic_path, 0);
-            }
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Mic capture start failed");
-            }
+            ESP_LOGE(TAG, "Mic capture start failed");
+            s_append_event_log("main: mic_capture_start failed %s", esp_err_to_name(ret));
+            s_handle_record_failure("Recording failed", "mic start failed",
+                                    "mic start failed", &consecutive_record_failures);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
+        ret = mic_capture_wait(&captured_seconds, portMAX_DELAY);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Mic capture failed");
+            s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
+            s_handle_record_failure("Recording failed", "mic capture failed",
+                                    "mic capture failed", &consecutive_record_failures);
         } else {
-            ret = mic_capture_wait(&captured_seconds, portMAX_DELAY);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Mic capture failed");
+            char line1[32];
+            const char *filename = strrchr(mic_path, '/');
+            if (filename != NULL) {
+                filename++;
+            } else if (mic_path[0] != '\0') {
+                filename = mic_path;
             } else {
-                char line1[32];
-                const char *filename = strrchr(mic_path, '/');
-                if (filename != NULL) {
-                    filename++;
-                } else if (mic_path[0] != '\0') {
-                    filename = mic_path;
-                } else {
-                    filename = "unnamed file";
-                }
-                snprintf(line1, sizeof(line1), "Recorded %ds at", captured_seconds);
-                button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
-                if (use_index_name) {
-                    file_index++;
-                }
+                filename = "unnamed file";
             }
+            snprintf(line1, sizeof(line1), "Recorded %ds at", captured_seconds);
+            button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
+            if (use_index_name) {
+                file_index++;
+            }
+            consecutive_record_failures = 0;
+            s_append_event_log("main: mic_capture_wait ok seconds=%d file=%s", captured_seconds, filename);
         }
 
         camera_app_wait_for_stop();
+        s_append_event_log("main: camera_app_wait_for_stop done button=%d", button_is_recording());
 #if ENABLE_TINYUSB_MSC
         ESP_LOGI(TAG, "Exposing SD card over USB");
         ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB));
         ESP_ERROR_CHECK(s_usb_start());
 #endif
+        s_append_event_log("main: returned to idle");
     }
 }

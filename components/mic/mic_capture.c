@@ -34,6 +34,22 @@ static volatile bool s_mic_running = false;
 static volatile int s_mic_last_seconds = 0;
 static volatile esp_err_t s_mic_last_result = ESP_OK;
 
+static void s_append_event_log(const char *fmt, ...)
+{
+    FILE *f = fopen("/sdcard/rec_event.txt", "a");
+    if (f == NULL) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+}
+
 // Applies software gain with clipping.
 static int32_t s_apply_gain(int32_t sample)
 {
@@ -289,6 +305,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
         ret = i2s_channel_read(rx_handle, buffer, bytes_to_read, &bytes_read, pdMS_TO_TICKS(1000));
         if (ret != ESP_OK) {
             s_log_error("I2S read failed (%s)", esp_err_to_name(ret));
+            s_append_event_log("mic error: i2s_read %s", esp_err_to_name(ret));
             break;
         }
         if (bytes_read > 0) {
@@ -332,5 +349,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
         *out_seconds = captured_seconds;
     }
     s_log_info("Captured %d sec to %s", captured_seconds, path);
+    s_append_event_log("mic stop: ret=%s seconds=%d button=%d path=%s",
+                       esp_err_to_name(ret), captured_seconds, button_is_recording(), path);
     return ret;
 }

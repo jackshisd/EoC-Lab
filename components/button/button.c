@@ -2,6 +2,8 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <unistd.h>
 
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -24,6 +26,22 @@ static TickType_t s_oled_next_retry_tick = 0;
 static uint8_t s_oled_fail_count = 0;
 static char s_oled_last_text[64];
 
+static void s_append_event_log(const char *fmt, ...)
+{
+    FILE *f = fopen("/sdcard/rec_event.txt", "a");
+    if (f == NULL) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+}
+
 static void s_log_oled_error_to_sd(esp_err_t err)
 {
     FILE *f = fopen("/sdcard/oled_err.txt", "a");
@@ -31,6 +49,8 @@ static void s_log_oled_error_to_sd(esp_err_t err)
         return;
     }
     fprintf(f, "oled write failed: %s (%d)\n", esp_err_to_name(err), (int)err);
+    fflush(f);
+    fsync(fileno(f));
     fclose(f);
 }
 
@@ -45,6 +65,7 @@ static void s_handle_short_press(void)
     if (s_recording) {
         s_paused = !s_paused;
         s_log_info(s_paused ? "Paused" : "Recording");
+        s_append_event_log("button short press -> %s", s_paused ? "paused" : "resumed");
     }
 }
 
@@ -54,11 +75,13 @@ static void s_handle_long_press(void)
         s_recording = false;
         s_paused = false;
         s_log_info("Recording stopped");
+        s_append_event_log("button long press -> stop");
     } else {
         s_recording = true;
         s_paused = false;
         s_record_start_tick = xTaskGetTickCount();
         s_log_info("Recording started");
+        s_append_event_log("button long press -> start");
     }
 }
 
@@ -174,6 +197,15 @@ void button_set_idle_display(const char *line1, const char *line2)
         line2 = "";
     }
     snprintf(s_status_line, sizeof(s_status_line), "%s\n%s", line1, line2);
+}
+
+void button_force_idle(void)
+{
+    s_recording = false;
+    s_paused = false;
+    s_record_start_tick = 0;
+    s_log_info("Recording forced idle");
+    s_append_event_log("button force idle");
 }
 
 // Returns whether recording is currently paused.

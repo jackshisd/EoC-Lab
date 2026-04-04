@@ -59,6 +59,22 @@ static uint8_t *s_black_jpeg = NULL;
 static size_t s_black_jpeg_len = 0;
 static bool s_psram_ok = false;
 
+static void s_append_event_log(const char *fmt, ...)
+{
+    FILE *f = fopen("/sdcard/rec_event.txt", "a");
+    if (f == NULL) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fputc('\n', f);
+    fflush(f);
+    fsync(fileno(f));
+    fclose(f);
+}
+
 // Returns the resolution for the selected camera frame size.
 static void s_frame_size_to_dim(framesize_t size, int *width, int *height)
 {
@@ -142,6 +158,7 @@ static void s_camera_record_task(void *arg)
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
             ESP_LOGE(TAG, "Camera capture failed");
+            s_append_event_log("camera frame fail");
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
@@ -180,6 +197,9 @@ static void s_camera_record_task(void *arg)
     fflush(f);
     fsync(fileno(f));
     fclose(f);
+    s_append_event_log("camera stop: frames=%u bad=%u button=%d path=%s",
+                       (unsigned)good_frame_count, (unsigned)bad_jpeg_count,
+                       button_is_recording(), args->path);
     s_camera_task = NULL;
     free(args);
     vTaskDelete(NULL);
