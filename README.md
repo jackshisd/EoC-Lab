@@ -13,25 +13,38 @@ Core features:
 - SDMMC FAT mount/unmount
 - USB MSC to expose the SD card when idle
 - SSD1306 I2C OLED status
-- Button + buzzer UI
+- Button UI
 - BLE scan trigger (advertisements) with timestamped filenames
 
 Supports SD (SDSC, SDHC, SDXC) cards and eMMC.
 
 ## Quick wiring map (ESP32-S3)
 
-- **SD card:** GPIO4/5/6/7/15/16 (SDMMC)
-- **Mic (I2S):** GPIO19/20/21
-- **OLED (I2C):** GPIO41/42 (addr `0x3C`)
-- **Camera (OV2640 SCCB):**
-  - SCCB SDA: GPIO47
-  - SCCB SCL: GPIO48
-  - XCLK: GPIO3 (10 MHz)
-  - D0..D7: GPIO8, 9, 10, 11, 12, 13, 14, 17
-  - PCLK: GPIO18
-  - VSYNC: GPIO21
-  - HREF: GPIO46
-  - PWDN/RESET: tied in hardware (PWDN → GND, RESET → 3.3V)
+- **SD card (SDMMC):**
+  - CLK: GPIO6
+  - CMD: GPIO7
+  - D0: GPIO5
+  - D1: GPIO4
+  - D2: GPIO16
+  - D3: GPIO15
+- **Mic (I2S):**
+  - BCLK: GPIO38
+  - LRCK/WS: GPIO40
+  - DOUT -> ESP DIN: GPIO39
+- **OLED (I2C, addr `0x3C`):**
+  - SDA: GPIO1
+  - SCL: GPIO2
+- **Button:**
+  - GPIO45
+- **Camera (OV2640):**
+  - SCCB SDA: GPIO18
+  - SCCB SCL: GPIO17
+  - XCLK: GPIO9 (10 MHz)
+  - D0..D7: GPIO47, GPIO48, GPIO14, GPIO21, GPIO12, GPIO13, GPIO10, GPIO11
+  - PCLK: GPIO46
+  - VSYNC: GPIO3
+  - HREF: GPIO8
+  - PWDN/RESET: tied in hardware (disabled in software with `-1`)
 
 ## Hardware
 
@@ -70,74 +83,71 @@ When using an ESP32-S3-USB-OTG board, this example runs without any extra modifi
 
 ESP32-S3 pin  | SD card pin | Notes
 --------------|-------------|------------
-GPIO4         | CLK         | 10k pullup
-GPIO5         | CMD         | 10k pullup
-GPIO6         | D0          | 10k pullup
-GPIO7         | D1          | 10k pullup
-GPIO15        | D2          | 10k pullup
-GPIO16        | D3          | 10k pullup (required even in 1-line mode)
+GPIO6         | CLK         | 10k pullup
+GPIO7         | CMD         | 10k pullup
+GPIO5         | D0          | 10k pullup
+GPIO4         | D1          | 10k pullup
+GPIO16        | D2          | 10k pullup
+GPIO15        | D3          | 10k pullup (required even in 1-line mode)
 
 ### I2S mic (ICS-43434)
 
 ESP32-S3 pin  | Mic pin
 --------------|---------
-GPIO19        | BCLK/SCK
-GPIO20        | WS/LRCL
-GPIO21        | DOUT/SD
+GPIO38        | BCLK/SCK
+GPIO40        | WS/LRCL
+GPIO39        | DOUT/SD
 3.3V          | VCC
 GND           | GND
 
-SEL/LR on the mic should be tied to GND (left channel), which matches the code.
+SEL/LR on the mic should be tied to 3.3V (right channel), which matches the code.
 
 ### OLED (SSD1306, I2C)
 
 ESP32-S3 pin  | OLED pin
 --------------|---------
-GPIO41        | SDA
-GPIO42        | SCL
+GPIO1         | SDA
+GPIO2         | SCL
 3.3V          | VCC
 GND           | GND
 
 I2C address is `0x3C`.
-Note: On ESP32-S3-DevKitC-1, GPIO41/42 are JTAG pins. Disable JTAG in `idf.py menuconfig` so they can be used for I2C.
 
 ### Camera (OV2640, Waveshare) — read this first
 
 This project uses OV2640 over SCCB (I2C). The camera is sensitive to pin choice and initial frames are often corrupted.
 
-**Working pin map (ESP32-S3):**
+**Current working pin map (ESP32-S3 custom board):**
 
 ESP32-S3 pin | OV2640 pin | Notes
 -------------|------------|------
-GPIO47       | SCCB SDA   | Camera I2C data
-GPIO48       | SCCB SCL   | Camera I2C clock
-GPIO3        | XCLK       | External clock (10 MHz)
-GPIO8        | D0         | Data bit 0
-GPIO9        | D1         | Data bit 1
-GPIO10       | D2         | Data bit 2
-GPIO11       | D3         | Data bit 3
+GPIO18       | SCCB SDA   | Camera I2C data
+GPIO17       | SCCB SCL   | Camera I2C clock
+GPIO9        | XCLK       | External clock (10 MHz)
+GPIO47       | D0         | Data bit 0
+GPIO48       | D1         | Data bit 1
+GPIO14       | D2         | Data bit 2
+GPIO21       | D3         | Data bit 3
 GPIO12       | D4         | Data bit 4
 GPIO13       | D5         | Data bit 5
-GPIO14       | D6         | Data bit 6
-GPIO17       | D7         | Data bit 7
-GPIO18       | PCLK       | Pixel clock
-GPIO21       | VSYNC      | Frame sync
-GPIO46       | HREF       | Line sync
+GPIO10       | D6         | Data bit 6
+GPIO11       | D7         | Data bit 7
+GPIO46       | PCLK       | Pixel clock
+GPIO3        | VSYNC      | Frame sync
+GPIO8        | HREF       | Line sync
 
 PWDN and RESET are tied in hardware (PWDN -> GND, RESET -> 3.3V). In software, they are disabled (set to `-1`).
 
 **What was broken and how it was fixed:**
 
-- SCCB was originally on GPIO36/37, which are used internally by Octal flash/PSRAM on ESP32-S3-WROOM-2, so SCCB traffic failed.
-  Fix: move SCCB to GPIO47/48 and set `sccb_i2c_port = I2C_NUM_0`.
-- OLED and camera shared an I2C bus, and we mixed old I2C driver with a driver_ng wrapper, causing a runtime abort.
-  Fix: split buses (OLED on I2C1 GPIO41/42, camera SCCB on I2C0 GPIO47/48) and remove SCCB mutex usage.
-- Early frames were corrupted (NO-SOI/NO-EOI) and were written to file.
-  Fix: discard the first 10 frames after init and only write frames with valid SOI/EOI markers.
-- FATFS without LFN rejected long filenames.
-  Fix: use 8.3 filename `VID0001.MJP`.
-- OLED writes could overlap between tasks and hang I2C.
-  Fix: serialize OLED I2C writes with a mutex and remove SD warning OLED spam.
+- Camera capture initially failed because of a real solder bridge between `VSYNC` and `PCLK`.
+  Fix: remove the bridge; camera now initializes and produces frames.
+- OLED instability was partly caused by a pin conflict: OLED `SCL` and the buzzer both used GPIO2.
+  Fix: remove all buzzer code so GPIO2 is dedicated to OLED `SCL`.
+- Mic audio was silent with one mic connected because the code was reading the wrong I2S slot.
+  Fix: switch the mic capture to the right channel and wire the mic `SEL/LR` pin high.
+- FATFS without LFN rejects long filenames.
+  Fix: keep video filenames 8.3-safe as `VID0001.MJP` and BLE timestamped names as `MMDDHHMM.MJP` / `MMDDHHMM.WAV`.
 
 **Playback note:** `VIDxxxx.MJP` is a raw MJPEG stream (not a container). VLC can play it; for QuickTime, convert to AVI/MP4.
 
@@ -160,12 +170,17 @@ If no valid BLE timestamp is seen, it falls back to the index names:
 - `YYMMDDHHMMSS` are BCD digits (base-10 nibbles)
 - Filenames use `MMDDHHMM` to stay 8.3-safe
 
-### Button + buzzer
+**Current BLE scan behavior:**
+
+- BLE trigger scanning is enabled.
+- Scanning is passive with duplicate filtering disabled.
+- Scan duty cycle was reduced from continuous `10 ms / 10 ms` (~100%) to `10 ms / 40 ms` (~25%) to reduce radio and power load while keeping start/stop trigger support during recording.
+
+### Button
 
 ESP32-S3 pin  | Device
 --------------|---------
-GPIO1         | Button (pull-up input)
-GPIO2         | Passive buzzer (PWM output)
+GPIO45        | Button (pull-up input)
 
 ### Pin assignments for ESP32-P4
 
@@ -244,7 +259,7 @@ idf.py -p PORT flash monitor
 3. Long press again stops recording, finalizes the WAV header, and returns the SD card to USB MSC.
 4. A later long press repeats the cycle with a new filename.
 
-Short press toggles pause/resume during recording. Each press produces a short beep.
+Short press toggles pause/resume during recording.
 
 ### SD card mount warnings
 
