@@ -21,6 +21,7 @@
 #define I2S_WS_IO          40 // Also known as LRCK
 #define I2S_DIN_IO         39 // Microphone data input
 #define MIC_GAIN_MULT      4  // Microphone gain multiplier
+#define MIC_CHANNELS       2  // Stereo capture (left + right)
 
 static const char *TAG = "mic";
 
@@ -221,7 +222,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(I2S_SAMPLE_RATE_HZ),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = I2S_BCLK_IO,
@@ -235,7 +236,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
             },
         },
     };
-    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_RIGHT;
+    std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_BOTH;
 
     ret = i2s_channel_init_std_mode(rx_handle, &std_cfg);
     if (ret != ESP_OK) {
@@ -272,10 +273,11 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     }
 
     const size_t bytes_per_sample = 4;
-    const size_t samples_per_chunk = 512;
+    const size_t bytes_per_frame = bytes_per_sample * MIC_CHANNELS;
+    const size_t frames_per_chunk = 512;
     const int flush_interval_ms = 1000;
     uint32_t next_flush_ms = flush_interval_ms;
-    const size_t chunk_bytes = samples_per_chunk * bytes_per_sample;
+    const size_t chunk_bytes = frames_per_chunk * bytes_per_frame;
     uint8_t *buffer = (uint8_t *)malloc(chunk_bytes);
     if (buffer == NULL) {
         s_log_error("Audio buffer alloc failed");
@@ -285,22 +287,22 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
         return ESP_ERR_NO_MEM;
     }
 
-    size_t total_samples = stop_on_button ? SIZE_MAX : (size_t)I2S_SAMPLE_RATE_HZ * (size_t)seconds;
-    size_t captured_samples = 0;
+    size_t total_frames = stop_on_button ? SIZE_MAX : (size_t)I2S_SAMPLE_RATE_HZ * (size_t)seconds;
+    size_t captured_frames = 0;
     if (write_wav) {
-        s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, 1, 0);
+        s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, 0);
     }
-    while (captured_samples < total_samples) {
+    while (captured_frames < total_frames) {
         if (stop_on_button && !button_is_recording()) {
             s_log_info("Stop requested");
             break;
         }
         size_t bytes_read = 0;
-        size_t samples_to_read = samples_per_chunk;
-        if (captured_samples + samples_to_read > total_samples) {
-            samples_to_read = total_samples - captured_samples;
+        size_t frames_to_read = frames_per_chunk;
+        if (captured_frames + frames_to_read > total_frames) {
+            frames_to_read = total_frames - captured_frames;
         }
-        size_t bytes_to_read = samples_to_read * bytes_per_sample;
+        size_t bytes_to_read = frames_to_read * bytes_per_frame;
 
         ret = i2s_channel_read(rx_handle, buffer, bytes_to_read, &bytes_read, pdMS_TO_TICKS(1000));
         if (ret != ESP_OK) {
@@ -319,24 +321,24 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
                 }
             }
             fwrite(buffer, 1, bytes_read, f);
-            captured_samples += bytes_read / bytes_per_sample;
+            captured_frames += bytes_read / bytes_per_frame;
         }
 
-        if (write_wav && (captured_samples * 1000 / I2S_SAMPLE_RATE_HZ) >= next_flush_ms) {
-            const uint32_t data_bytes = (uint32_t)(captured_samples * bytes_per_sample);
+        if (write_wav && (captured_frames * 1000 / I2S_SAMPLE_RATE_HZ) >= next_flush_ms) {
+            const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
             fflush(f);
             fsync(fileno(f));
             fseek(f, 0, SEEK_SET);
-            s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, 1, data_bytes);
+            s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, data_bytes);
             fseek(f, 0, SEEK_END);
             next_flush_ms += flush_interval_ms;
         }
     }
 
     if (write_wav) {
-        const uint32_t data_bytes = (uint32_t)(captured_samples * bytes_per_sample);
+        const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
         fseek(f, 0, SEEK_SET);
-        s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, 1, data_bytes);
+        s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, data_bytes);
     }
 
     free(buffer);
@@ -344,7 +346,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     i2s_channel_disable(rx_handle);
     i2s_del_channel(rx_handle);
 
-    int captured_seconds = (int)(captured_samples / I2S_SAMPLE_RATE_HZ);
+    int captured_seconds = (int)(captured_frames / I2S_SAMPLE_RATE_HZ);
     if (out_seconds != NULL) {
         *out_seconds = captured_seconds;
     }
