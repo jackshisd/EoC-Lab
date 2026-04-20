@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include "driver/i2c.h"
 #include "i2c_bus.h"
+#include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -43,6 +44,9 @@ static const char *TAG = "example";
 #define EXAMPLE_IS_UHS1    (CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_SDR50 || CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_DDR50)
 #define ENABLE_TINYUSB_MSC 1
 #define SHOW_RESET_CAUSE_ON_OLED 1
+#define CONTACT_MIC_DEBUG_MODE 1
+#define CONTACT_MIC_DEBUG_SECONDS 10
+#define CONTACT_MIC_DEBUG_WAV_PATH MOUNT_POINT"/es8388.wav"
 
 #define OLED_I2C_SDA       1
 #define OLED_I2C_SCL       2
@@ -370,6 +374,178 @@ static void s_usb_stop(void)
 #endif
 }
 
+static esp_err_t s_mount_sd_card_debug(sdmmc_card_t **out_card)
+{
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+        .format_if_mount_failed = false,
+        .max_files = 4,
+        .allocation_unit_size = 16 * 1024,
+    };
+
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    slot_config.width = 4;
+#ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
+    slot_config.clk = 6;
+    slot_config.cmd = 7;
+    slot_config.d0 = 5;
+    slot_config.d1 = 4;
+    slot_config.d2 = 16;
+    slot_config.d3 = 15;
+#endif
+    slot_config.flags |= SDMMC_SLOT_FLAG_INTERNAL_PULLUP;
+
+    return esp_vfs_fat_sdmmc_mount(MOUNT_POINT, &host, &slot_config, &mount_config, out_card);
+}
+
+static void s_write_contact_debug_result(esp_err_t ret, int captured_seconds)
+{
+    FILE *f = fopen(MOUNT_POINT"/contact_result.txt", "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to write contact_result.txt");
+        return;
+    }
+
+    fprintf(f, "result=%s\n", esp_err_to_name(ret));
+    fprintf(f, "captured_seconds=%d\n", captured_seconds);
+    fprintf(f, "wav_path=%s\n", CONTACT_MIC_DEBUG_WAV_PATH);
+    fclose(f);
+}
+
+static void s_build_i2c_scan_summary(char *out, size_t out_size)
+{
+    if (out_size == 0) {
+        return;
+    }
+
+    snprintf(out, out_size, "I2C:none");
+    if (!i2c_bus_is_init()) {
+        return;
+    }
+
+    esp_err_t lock_ret = i2c_bus_lock(pdMS_TO_TICKS(200));
+    if (lock_ret != ESP_OK) {
+        snprintf(out, out_size, "I2C:lockfail");
+        return;
+    }
+
+    size_t used = (size_t)snprintf(out, out_size, "I2C:");
+    int shown = 0;
+    bool truncated = false;
+    i2c_port_t port = i2c_bus_get_port();
+
+    for (uint8_t addr = 0x03; addr <= 0x77; addr++) {
+        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t ret = i2c_master_cmd_begin(port, cmd, pdMS_TO_TICKS(20));
+        i2c_cmd_link_delete(cmd);
+
+        if (ret != ESP_OK) {
+            continue;
+        }
+
+        if (shown >= 4) {
+            truncated = true;
+            break;
+        }
+
+        int written = snprintf(out + used, out_size - used, "%s%02X",
+                               (shown == 0) ? "" : ",", addr);
+        if (written < 0 || (size_t)written >= out_size - used) {
+            truncated = true;
+            break;
+        }
+        used += (size_t)written;
+        shown++;
+    }
+
+    if (shown == 0) {
+        snprintf(out, out_size, "I2C:none");
+    } else if (truncated && used < out_size) {
+        snprintf(out + used, out_size - used, "+");
+    }
+
+    i2c_bus_unlock();
+}
+
+static void s_oled_show_contact_status(bool oled_ready, const char *status)
+{
+    if (!oled_ready) {
+        return;
+    }
+
+    char i2c_line[24];
+    char oled_msg[64];
+    s_build_i2c_scan_summary(i2c_line, sizeof(i2c_line));
+    snprintf(oled_msg, sizeof(oled_msg), "%s\n%s", i2c_line, status);
+    oled_ssd1306_display_text(oled_msg);
+}
+
+static bool s_contact_oled_ready;
+
+static void s_contact_oled_status_callback(const char *status)
+{
+    s_oled_show_contact_status(s_contact_oled_ready, status);
+}
+
+static void s_run_contact_mic_debug_mode(void)
+{
+    ESP_LOGW(TAG, "CONTACT_MIC_DEBUG_MODE enabled; skipping normal recorder features");
+
+    bool oled_ready = false;
+    esp_err_t ret = i2c_bus_init(I2C_NUM_1, OLED_I2C_SDA, OLED_I2C_SCL, I2C_SHARED_FREQ_HZ);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Contact mic debug I2C init failed (%s)", esp_err_to_name(ret));
+    }
+
+    if (oled_ssd1306_init() == ESP_OK) {
+        oled_ready = true;
+        s_contact_oled_ready = true;
+        mic_capture_contact_set_status_callback(s_contact_oled_status_callback);
+        s_oled_show_contact_status(oled_ready, "es8388 testing");
+    }
+
+    sdmmc_card_t *card = NULL;
+    ret = s_mount_sd_card_debug(&card);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Contact mic debug SD mount failed (%s)", esp_err_to_name(ret));
+        s_oled_show_contact_status(oled_ready, "sd mount fail");
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
+    sdmmc_card_print_info(stdout, card);
+
+    int captured_seconds = 0;
+    ret = mic_capture_contact_debug_to_file(CONTACT_MIC_DEBUG_WAV_PATH,
+                                            CONTACT_MIC_DEBUG_SECONDS,
+                                            &captured_seconds);
+    ESP_LOGI(TAG, "Contact mic debug capture complete: %s, seconds=%d",
+             esp_err_to_name(ret), captured_seconds);
+    s_write_contact_debug_result(ret, captured_seconds);
+
+    if (ret == ESP_OK) {
+        s_oled_show_contact_status(oled_ready, "test finished");
+    } else {
+        char status[32];
+        int fail_reg = mic_capture_contact_debug_last_reg();
+        if (fail_reg >= 0 && strcmp(mic_capture_contact_debug_last_stage(), "codec fail") == 0) {
+            snprintf(status, sizeof(status), "fail:codec %02X", fail_reg);
+        } else {
+            snprintf(status, sizeof(status), "fail:%s",
+                     mic_capture_contact_debug_last_stage());
+        }
+        s_oled_show_contact_status(oled_ready, status);
+    }
+
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 static void s_handle_record_failure(const char *line1, const char *line2,
                                     const char *reason, uint32_t *failure_count)
 {
@@ -414,6 +590,11 @@ static void s_handle_record_failure(const char *line1, const char *line2,
 // Initializes peripherals and handles record/USB switching loop.
 void app_main(void)
 {
+#if CONTACT_MIC_DEBUG_MODE
+    s_run_contact_mic_debug_mode();
+    return;
+#endif
+
     esp_err_t ret;
     ESP_LOGI(TAG, "Bring-up: start");
 
