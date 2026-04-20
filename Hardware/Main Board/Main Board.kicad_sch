@@ -20954,7 +20954,7 @@
 		(dnp no)
 		(fields_autoplaced yes)
 		(uuid "e4aecf53-3c85-4f22-9e7d-4dda994e3eff")
-		(property "Reference" "600Ω@100MHz"
+		(property "Reference" "600Ω@100MHz1"
 			(at 319.9892 208.28 90)
 			(effects
 				(font
@@ -21006,7 +21006,7 @@
 		(instances
 			(project ""
 				(path "/06300a21-1646-41b0-b473-1c39557d6dab"
-					(reference "600Ω@100MHz")
+					(reference "600Ω@100MHz1")
 					(unit 1)
 				)
 			)
