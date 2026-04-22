@@ -31,6 +31,7 @@
 #define CONTACT_CODEC_I2C_HZ   100000
 #define CONTACT_ES8388_ADDR0   0x10
 #define CONTACT_ES8388_ADDR1   0x11
+#define CONTACT_I2S_PORT       I2S_NUM_1
 #define CONTACT_I2S_MCLK_IO    41
 #define CONTACT_I2S_DIN_IO     42
 #define CONTACT_I2S_BCLK_IO    43
@@ -49,6 +50,10 @@ static TaskHandle_t s_mic_task = NULL;
 static volatile bool s_mic_running = false;
 static volatile int s_mic_last_seconds = 0;
 static volatile esp_err_t s_mic_last_result = ESP_OK;
+static TaskHandle_t s_contact_task = NULL;
+static volatile bool s_contact_running = false;
+static volatile int s_contact_last_seconds = 0;
+static volatile esp_err_t s_contact_last_result = ESP_OK;
 
 static void s_append_event_log(const char *fmt, ...)
 {
@@ -120,6 +125,19 @@ static void s_mic_task_entry(void *arg)
     vTaskDelete(NULL);
 }
 
+static void s_contact_task_entry(void *arg)
+{
+    mic_capture_args_t *args = (mic_capture_args_t *)arg;
+    int captured_seconds = 0;
+    esp_err_t result = mic_capture_contact_to_file(args->path, args->seconds, &captured_seconds);
+    s_contact_last_seconds = captured_seconds;
+    s_contact_last_result = result;
+    s_contact_running = false;
+    s_contact_task = NULL;
+    free(args);
+    vTaskDelete(NULL);
+}
+
 esp_err_t mic_capture_start(const char *path, int seconds)
 {
     if (s_mic_running) {
@@ -145,9 +163,39 @@ esp_err_t mic_capture_start(const char *path, int seconds)
     return ESP_OK;
 }
 
+esp_err_t mic_capture_contact_start(const char *path, int seconds)
+{
+    if (s_contact_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    mic_capture_args_t *args = (mic_capture_args_t *)calloc(1, sizeof(*args));
+    if (args == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    strlcpy(args->path, path, sizeof(args->path));
+    args->seconds = seconds;
+    s_contact_running = true;
+    s_contact_last_seconds = 0;
+    s_contact_last_result = ESP_OK;
+
+    if (xTaskCreate(s_contact_task_entry, "contact_record", 6144, args, 5, &s_contact_task) != pdPASS) {
+        s_contact_running = false;
+        free(args);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
 bool mic_capture_is_running(void)
 {
     return s_mic_running;
+}
+
+bool mic_capture_contact_is_running(void)
+{
+    return s_contact_running;
 }
 
 esp_err_t mic_capture_wait(int *out_seconds, TickType_t timeout)
@@ -163,6 +211,21 @@ esp_err_t mic_capture_wait(int *out_seconds, TickType_t timeout)
         *out_seconds = s_mic_last_seconds;
     }
     return s_mic_last_result;
+}
+
+esp_err_t mic_capture_contact_wait(int *out_seconds, TickType_t timeout)
+{
+    const TickType_t start = xTaskGetTickCount();
+    while (s_contact_running) {
+        if (timeout != portMAX_DELAY && (xTaskGetTickCount() - start) > timeout) {
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (out_seconds != NULL) {
+        *out_seconds = s_contact_last_seconds;
+    }
+    return s_contact_last_result;
 }
 
 // Writes a 16-bit little-endian value to a file.
@@ -372,6 +435,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 }
 
 static bool s_contact_codec_i2c_ready = false;
+static bool s_contact_codec_initialized = false;
 static uint8_t s_contact_codec_addr = 0;
 static const char *s_contact_last_stage = "idle";
 static int s_contact_last_reg = -1;
@@ -380,6 +444,11 @@ static void (*s_contact_status_callback)(const char *status) = NULL;
 int mic_capture_contact_debug_last_reg(void)
 {
     return s_contact_last_reg;
+}
+
+bool mic_capture_contact_is_ready(void)
+{
+    return s_contact_codec_initialized;
 }
 
 void mic_capture_contact_set_status_callback(void (*callback)(const char *status))
@@ -516,11 +585,19 @@ static esp_err_t s_contact_es8388_init(void)
 
 static esp_err_t s_contact_es8388_init_until_ready(void)
 {
+    if (s_contact_codec_initialized) {
+        if (s_contact_status_callback != NULL) {
+            s_contact_status_callback("codec ok");
+        }
+        return ESP_OK;
+    }
+
     esp_err_t ret = ESP_FAIL;
     int retry_count = 0;
     while (true) {
         ret = s_contact_es8388_init();
         if (ret == ESP_OK) {
+            s_contact_codec_initialized = true;
             if (s_contact_status_callback != NULL) {
                 s_contact_status_callback("codec ok");
             }
@@ -539,6 +616,13 @@ static esp_err_t s_contact_es8388_init_until_ready(void)
                  (s_contact_last_reg >= 0) ? s_contact_last_reg : 0);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+}
+
+esp_err_t mic_capture_contact_init(void)
+{
+    s_contact_last_stage = "codec init";
+    s_contact_last_reg = -1;
+    return s_contact_es8388_init_until_ready();
 }
 
 static void s_contact_write_stats(esp_err_t ret, size_t captured_frames, int captured_seconds,
@@ -565,18 +649,19 @@ static void s_contact_write_stats(esp_err_t ret, size_t captured_frames, int cap
     fclose(f);
 }
 
-esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *out_seconds)
+esp_err_t mic_capture_contact_to_file(const char *path, int seconds, int *out_seconds)
 {
     s_contact_last_stage = "start";
     s_contact_last_reg = -1;
 
-    if (seconds < 1) {
+    const bool stop_on_button = (seconds <= 0);
+    if (!stop_on_button && seconds < 1) {
         seconds = 10;
     }
 
     esp_err_t ret;
     i2s_chan_handle_t rx_handle = NULL;
-    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(CONTACT_I2S_PORT, I2S_ROLE_MASTER);
 
     ret = i2s_new_channel(&chan_cfg, NULL, &rx_handle);
     if (ret != ESP_OK) {
@@ -585,18 +670,16 @@ esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *
         return ret;
     }
 
-    s_contact_last_stage = "codec init";
-    vTaskDelay(pdMS_TO_TICKS(300));
-    ret = s_contact_es8388_init_until_ready();
-    if (ret != ESP_OK) {
-        s_contact_last_stage = "codec fail";
-        ESP_LOGE(TAG, "ES8388 init failed (%s)", esp_err_to_name(ret));
-        i2s_del_channel(rx_handle);
-        return ret;
-    }
-
-    if (s_contact_status_callback != NULL) {
-        s_contact_status_callback("codec ok");
+    if (!s_contact_codec_initialized) {
+        s_contact_last_stage = "codec init";
+        vTaskDelay(pdMS_TO_TICKS(300));
+        ret = s_contact_es8388_init_until_ready();
+        if (ret != ESP_OK) {
+            s_contact_last_stage = "codec fail";
+            ESP_LOGE(TAG, "ES8388 init failed (%s)", esp_err_to_name(ret));
+            i2s_del_channel(rx_handle);
+            return ret;
+        }
     }
 
     i2s_std_config_t std_cfg = {
@@ -649,7 +732,7 @@ esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *
     const size_t bytes_per_frame = bytes_per_sample * CONTACT_MIC_CHANNELS;
     const size_t frames_per_chunk = 512;
     const size_t chunk_bytes = frames_per_chunk * bytes_per_frame;
-    const size_t total_frames = (size_t)I2S_SAMPLE_RATE_HZ * (size_t)seconds;
+    const size_t total_frames = stop_on_button ? SIZE_MAX : (size_t)I2S_SAMPLE_RATE_HZ * (size_t)seconds;
     uint8_t *buffer = (uint8_t *)malloc(chunk_bytes);
     if (buffer == NULL) {
         s_contact_last_stage = "alloc fail";
@@ -669,6 +752,9 @@ esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *
     uint32_t nonzero_right = 0;
 
     while (captured_frames < total_frames) {
+        if (stop_on_button && !button_is_recording()) {
+            break;
+        }
         size_t bytes_read = 0;
         size_t frames_to_read = frames_per_chunk;
         if (captured_frames + frames_to_read > total_frames) {
@@ -723,6 +809,12 @@ esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *
              esp_err_to_name(ret), captured_seconds, (long)peak_left, (long)peak_right);
     return ret;
 }
+
+esp_err_t mic_capture_contact_debug_to_file(const char *path, int seconds, int *out_seconds)
+{
+    return mic_capture_contact_to_file(path, seconds, out_seconds);
+}
+
 const char *mic_capture_contact_debug_last_stage(void)
 {
     return s_contact_last_stage;

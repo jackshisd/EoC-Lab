@@ -12,6 +12,7 @@
 #include "esp_camera.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "img_converters.h"
@@ -46,6 +47,8 @@ void camera_ov2640_get_default_pins(camera_ov2640_pins_t *pins)
 #define VIDEO_JPEG_QUALITY 12
 #define VIDEO_XCLK_HZ      10000000
 #define VIDEO_FLUSH_BYTES  (4 * 1024 * 1024)
+#define VIDEO_TARGET_FPS   14
+#define VIDEO_FRAME_PERIOD_US (1000000 / VIDEO_TARGET_FPS)
 
 static const char *TAG = "example";
 
@@ -154,6 +157,7 @@ static void s_camera_record_task(void *arg)
     size_t bytes_since_flush = 0;
     uint32_t bad_jpeg_count = 0;
     uint32_t good_frame_count = 0;
+    int64_t next_frame_time_us = esp_timer_get_time();
     while (button_is_recording()) {
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
@@ -161,6 +165,16 @@ static void s_camera_record_task(void *arg)
             s_append_event_log("camera frame fail");
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
+        }
+
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us < next_frame_time_us) {
+            esp_camera_fb_return(fb);
+            continue;
+        }
+        next_frame_time_us += VIDEO_FRAME_PERIOD_US;
+        if (next_frame_time_us < now_us) {
+            next_frame_time_us = now_us + VIDEO_FRAME_PERIOD_US;
         }
 
         if (button_is_paused() && s_black_jpeg && s_black_jpeg_len > 0) {

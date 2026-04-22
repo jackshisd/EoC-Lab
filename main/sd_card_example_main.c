@@ -47,6 +47,8 @@ static const char *TAG = "example";
 #define CONTACT_MIC_DEBUG_MODE 1
 #define CONTACT_MIC_DEBUG_SECONDS 10
 #define CONTACT_MIC_DEBUG_WAV_PATH MOUNT_POINT"/es8388.wav"
+#define STANDARD_MIC_DEBUG_WAV_PATH MOUNT_POINT"/stdmic.wav"
+#define ENABLE_CONTACT_MIC_RECORDING 1
 
 #define OLED_I2C_SDA       1
 #define OLED_I2C_SCL       2
@@ -412,6 +414,24 @@ static void s_write_contact_debug_result(esp_err_t ret, int captured_seconds)
     fclose(f);
 }
 
+static void s_write_dual_mic_debug_result(esp_err_t std_ret, int std_seconds,
+                                          esp_err_t contact_ret, int contact_seconds)
+{
+    FILE *f = fopen(MOUNT_POINT"/contact_result.txt", "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to write contact_result.txt");
+        return;
+    }
+
+    fprintf(f, "standard_result=%s\n", esp_err_to_name(std_ret));
+    fprintf(f, "standard_captured_seconds=%d\n", std_seconds);
+    fprintf(f, "standard_wav_path=%s\n", STANDARD_MIC_DEBUG_WAV_PATH);
+    fprintf(f, "contact_result=%s\n", esp_err_to_name(contact_ret));
+    fprintf(f, "contact_captured_seconds=%d\n", contact_seconds);
+    fprintf(f, "contact_wav_path=%s\n", CONTACT_MIC_DEBUG_WAV_PATH);
+    fclose(f);
+}
+
 static void s_build_i2c_scan_summary(char *out, size_t out_size)
 {
     if (out_size == 0) {
@@ -504,7 +524,7 @@ static void s_run_contact_mic_debug_mode(void)
         oled_ready = true;
         s_contact_oled_ready = true;
         mic_capture_contact_set_status_callback(s_contact_oled_status_callback);
-        s_oled_show_contact_status(oled_ready, "es8388 testing");
+        s_oled_show_contact_status(oled_ready, "dual mic test");
     }
 
     sdmmc_card_t *card = NULL;
@@ -519,20 +539,55 @@ static void s_run_contact_mic_debug_mode(void)
 
     sdmmc_card_print_info(stdout, card);
 
-    int captured_seconds = 0;
-    ret = mic_capture_contact_debug_to_file(CONTACT_MIC_DEBUG_WAV_PATH,
-                                            CONTACT_MIC_DEBUG_SECONDS,
-                                            &captured_seconds);
-    ESP_LOGI(TAG, "Contact mic debug capture complete: %s, seconds=%d",
-             esp_err_to_name(ret), captured_seconds);
-    s_write_contact_debug_result(ret, captured_seconds);
+    s_oled_show_contact_status(oled_ready, "codec boot init");
+    ret = mic_capture_contact_init();
+    if (ret != ESP_OK) {
+        char status[32];
+        int fail_reg = mic_capture_contact_debug_last_reg();
+        if (fail_reg >= 0 && strcmp(mic_capture_contact_debug_last_stage(), "codec fail") == 0) {
+            snprintf(status, sizeof(status), "fail:codec %02X", fail_reg);
+        } else {
+            snprintf(status, sizeof(status), "fail:%s",
+                     mic_capture_contact_debug_last_stage());
+        }
+        s_oled_show_contact_status(oled_ready, status);
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
 
-    if (ret == ESP_OK) {
+    int standard_seconds = 0;
+    int contact_seconds = 0;
+    button_force_idle();
+    button_trigger_long_press();
+
+    esp_err_t std_ret = mic_capture_start(STANDARD_MIC_DEBUG_WAV_PATH, CONTACT_MIC_DEBUG_SECONDS);
+    esp_err_t contact_ret = ESP_OK;
+    if (std_ret == ESP_OK) {
+        contact_ret = mic_capture_contact_start(CONTACT_MIC_DEBUG_WAV_PATH, CONTACT_MIC_DEBUG_SECONDS);
+    }
+
+    if (std_ret == ESP_OK) {
+        std_ret = mic_capture_wait(&standard_seconds, portMAX_DELAY);
+    }
+    if (contact_ret == ESP_OK) {
+        contact_ret = mic_capture_contact_wait(&contact_seconds, portMAX_DELAY);
+    }
+    button_force_idle();
+
+    ESP_LOGI(TAG, "Dual mic debug complete: standard=%s(%d) contact=%s(%d)",
+             esp_err_to_name(std_ret), standard_seconds,
+             esp_err_to_name(contact_ret), contact_seconds);
+    s_write_dual_mic_debug_result(std_ret, standard_seconds, contact_ret, contact_seconds);
+
+    if (std_ret == ESP_OK && contact_ret == ESP_OK) {
         s_oled_show_contact_status(oled_ready, "test finished");
     } else {
         char status[32];
         int fail_reg = mic_capture_contact_debug_last_reg();
-        if (fail_reg >= 0 && strcmp(mic_capture_contact_debug_last_stage(), "codec fail") == 0) {
+        if (std_ret != ESP_OK) {
+            snprintf(status, sizeof(status), "fail:std mic");
+        } else if (fail_reg >= 0 && strcmp(mic_capture_contact_debug_last_stage(), "codec fail") == 0) {
             snprintf(status, sizeof(status), "fail:codec %02X", fail_reg);
         } else {
             snprintf(status, sizeof(status), "fail:%s",
@@ -563,6 +618,20 @@ static void s_handle_record_failure(const char *line1, const char *line2,
 
     camera_app_wait_for_stop();
     s_append_event_log("main: recovery camera stop done");
+    if (mic_capture_is_running()) {
+        int discarded_seconds = 0;
+        esp_err_t mic_ret = mic_capture_wait(&discarded_seconds, pdMS_TO_TICKS(5000));
+        s_append_event_log("main: recovery mic stop %s seconds=%d",
+                           esp_err_to_name(mic_ret), discarded_seconds);
+    }
+#if ENABLE_CONTACT_MIC_RECORDING
+    if (mic_capture_contact_is_running()) {
+        int discarded_seconds = 0;
+        esp_err_t contact_ret = mic_capture_contact_wait(&discarded_seconds, pdMS_TO_TICKS(5000));
+        s_append_event_log("main: recovery contact stop %s seconds=%d",
+                           esp_err_to_name(contact_ret), discarded_seconds);
+    }
+#endif
 
     s_usb_stop();
     esp_err_t ret = s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_APP);
@@ -621,6 +690,8 @@ void app_main(void)
     if (oled_ssd1306_init() != ESP_OK) {
         ESP_LOGE(TAG, "OLED init failed");
     } else {
+        s_contact_oled_ready = true;
+        mic_capture_contact_set_status_callback(s_contact_oled_status_callback);
 #if SHOW_RESET_CAUSE_ON_OLED
         char boot_msg[64];
         snprintf(boot_msg, sizeof(boot_msg), "Boot\n%s", s_reset_reason_name(esp_reset_reason()));
@@ -629,6 +700,19 @@ void app_main(void)
 #endif
     }
     ESP_LOGI(TAG, "Bring-up: oled_ssd1306_init done");
+
+#if ENABLE_CONTACT_MIC_RECORDING
+    ESP_LOGI(TAG, "Bring-up: mic_capture_contact_init begin");
+    if (s_contact_oled_ready) {
+        s_oled_show_contact_status(true, "codec boot init");
+    }
+    ret = mic_capture_contact_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Contact codec init failed (%s)", esp_err_to_name(ret));
+        return;
+    }
+    ESP_LOGI(TAG, "Bring-up: mic_capture_contact_init done");
+#endif
 
     ESP_LOGI(TAG, "Bring-up: button_init begin");
     button_init();
@@ -705,16 +789,19 @@ void app_main(void)
         }
 
         char mic_path[EXAMPLE_MAX_CHAR_SIZE];
+        char contact_path[EXAMPLE_MAX_CHAR_SIZE];
         char video_path[EXAMPLE_MAX_CHAR_SIZE];
         char timestamp[16];
         bool use_index_name = true;
         if (ble_trigger_get_timestamp(timestamp, sizeof(timestamp))) {
             // 8.3-safe names using YYMMDDHH (hour resolution) for both media types.
             snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/%s.WAV", timestamp);
+            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/C%s.WAV", timestamp);
             snprintf(video_path, sizeof(video_path), MOUNT_POINT"/%s.MJP", timestamp);
             use_index_name = false;
         } else {
             snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
+            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/CT%04u.WAV", (unsigned)file_index);
             // Use 8.3-compatible name to avoid FATFS EINVAL when LFN is disabled.
             snprintf(video_path, sizeof(video_path), MOUNT_POINT"/VID%04u.MJP", (unsigned)file_index);
         }
@@ -745,10 +832,12 @@ void app_main(void)
             }
         }
         int captured_seconds = 0;
+        int contact_captured_seconds = 0;
         ret = mic_capture_start(mic_path, 0);
         if (ret != ESP_OK && !use_index_name) {
             ESP_LOGW(TAG, "Timestamped mic name failed (%s); using index", esp_err_to_name(ret));
             snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
+            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/CT%04u.WAV", (unsigned)file_index);
             use_index_name = true;
             ret = mic_capture_start(mic_path, 0);
         }
@@ -761,12 +850,35 @@ void app_main(void)
             continue;
         }
 
+#if ENABLE_CONTACT_MIC_RECORDING
+        ret = mic_capture_contact_start(contact_path, 0);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Contact mic capture start failed");
+            s_append_event_log("main: mic_capture_contact_start failed %s", esp_err_to_name(ret));
+            s_handle_record_failure("Recording failed", "contact start failed",
+                                    "contact mic start failed", &consecutive_record_failures);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+#endif
+
         ret = mic_capture_wait(&captured_seconds, portMAX_DELAY);
+        esp_err_t contact_ret = ESP_OK;
+#if ENABLE_CONTACT_MIC_RECORDING
+        contact_ret = mic_capture_contact_wait(&contact_captured_seconds, portMAX_DELAY);
+#endif
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Mic capture failed");
             s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
             s_handle_record_failure("Recording failed", "mic capture failed",
                                     "mic capture failed", &consecutive_record_failures);
+#if ENABLE_CONTACT_MIC_RECORDING
+        } else if (contact_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Contact mic capture failed");
+            s_append_event_log("main: mic_capture_contact_wait failed %s", esp_err_to_name(contact_ret));
+            s_handle_record_failure("Recording failed", "contact capture failed",
+                                    "contact mic capture failed", &consecutive_record_failures);
+#endif
         } else {
             char line1[32];
             const char *filename = strrchr(mic_path, '/');
@@ -784,6 +896,10 @@ void app_main(void)
             }
             consecutive_record_failures = 0;
             s_append_event_log("main: mic_capture_wait ok seconds=%d file=%s", captured_seconds, filename);
+#if ENABLE_CONTACT_MIC_RECORDING
+            s_append_event_log("main: contact_capture_wait ok seconds=%d file=%s",
+                               contact_captured_seconds, contact_path);
+#endif
         }
 
         camera_app_wait_for_stop();
