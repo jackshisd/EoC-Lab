@@ -7,6 +7,7 @@ __WARNING:__ This project writes audio/video files to the SD card. Back up your 
 
 Records:
 - **Audio**: WAV via I2S mic (ICS-43434), `mic_0001.wav`, `mic_0002.wav`, ...
+- **Contact audio**: WAV via ES8388 contact mic board, `CT0001.WAV`, `CT0002.WAV`, ...
 - **Video**: MJPEG via OV2640, `VID0001.MJP`, `VID0002.MJP`, ...
 
 Core features:
@@ -15,6 +16,8 @@ Core features:
 - SSD1306 I2C OLED status
 - Button UI
 - BLE scan trigger (advertisements) with timestamped filenames
+- Simultaneous standard mic + contact mic recording to separate WAV files
+- Boot-time ES8388 codec bring-up so contact recording does not reinitialize the codec on every session
 
 Supports SD (SDSC, SDHC, SDXC) cards and eMMC.
 
@@ -34,6 +37,13 @@ Supports SD (SDSC, SDHC, SDXC) cards and eMMC.
 - **OLED (I2C, addr `0x3C`):**
   - SDA: GPIO1
   - SCL: GPIO2
+- **Contact mic codec board (ES8388 + MCP6002):**
+  - I2C SDA: GPIO1
+  - I2C SCL: GPIO2
+  - MCLK: GPIO41
+  - ASDOUT -> ESP DIN: GPIO42
+  - SCLK/BCLK: GPIO43
+  - LRCK/WS: GPIO44
 - **Button:**
   - GPIO45
 - **Camera (OV2640):**
@@ -113,6 +123,26 @@ GND           | GND
 
 I2C address is `0x3C`.
 
+### Contact mic codec board (ES8388)
+
+ESP32-S3 pin  | Contact mic board pin
+--------------|----------------------
+GPIO1         | CDATA / I2C SDA
+GPIO2         | CCLK / I2C SCL
+GPIO41        | MCLK
+GPIO42        | ASDOUT / codec data out
+GPIO43        | SCLK / BCLK
+GPIO44        | LRCK / WS
+3.3V          | Codec supply
+GND           | GND
+
+Current firmware behavior:
+
+- The ES8388 codec is initialized once at boot.
+- If codec init is slow, the OLED shows retry/progress messages during boot.
+- Once the OLED shows `codec ok`, normal operation begins.
+- Later recordings reuse the initialized codec instead of re-running full codec init every time.
+
 ### Camera (OV2640, Waveshare) — read this first
 
 This project uses OV2640 over SCCB (I2C). The camera is sensitive to pin choice and initial frames are often corrupted.
@@ -157,11 +187,13 @@ The device scans BLE advertisements and uses a UUID-encoded timestamp to name fi
 
 - **Video:** `MMDDHHMM.MJP`
 - **Audio:** `MMDDHHMM.WAV`
+- **Contact audio:** a contact-mic WAV derived from the same BLE timestamp, with a contact-specific filename prefix
 
 If no valid BLE timestamp is seen, it falls back to the index names:
 
 - `VID0001.MJP`
 - `mic_0001.wav`
+- `CT0001.WAV`
 
 **UUID format (128-bit):** `00000000-0000-0000-TT00-YYMMDDHHMMSS`
 
@@ -255,9 +287,19 @@ idf.py -p PORT flash monitor
 ### Recording flow
 
 1. Long press starts recording. USB MSC is stopped and the SD card is mounted to the app.
-2. Audio is written to `mic_0001.wav`, `mic_0002.wav`, etc.
-3. Long press again stops recording, finalizes the WAV header, and returns the SD card to USB MSC.
-4. A later long press repeats the cycle with a new filename.
+2. The normal I2S mic and the ES8388 contact mic are both recorded at the same time into separate WAV files.
+3. Video is recorded in parallel if the camera is enabled and initialized.
+4. Long press again stops recording, finalizes the WAV header(s), waits for the camera task to stop, and returns the SD card to USB MSC.
+5. A later long press repeats the cycle with a new filename set.
+
+### Idle / post-record OLED messages
+
+The OLED status is more specific than a generic `Ready` screen:
+
+- Clean success: `Recorded Xs at` + the standard mic filename
+- Standard mic file exists even if the task reported a higher-level failure: `Mic file saved`
+- Standard mic saved but contact mic failed: `Mic saved; c fail`
+- Startup codec bring-up: retry/progress messages followed by `codec ok`
 
 Short press toggles pause/resume during recording.
 
