@@ -44,7 +44,7 @@ static const char *TAG = "example";
 #define EXAMPLE_IS_UHS1    (CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_SDR50 || CONFIG_EXAMPLE_SDMMC_SPEED_UHS_I_DDR50)
 #define ENABLE_TINYUSB_MSC 1
 #define SHOW_RESET_CAUSE_ON_OLED 1
-#define CONTACT_MIC_DEBUG_MODE 1
+#define CONTACT_MIC_DEBUG_MODE 0
 #define CONTACT_MIC_DEBUG_SECONDS 10
 #define CONTACT_MIC_DEBUG_WAV_PATH MOUNT_POINT"/es8388.wav"
 #define STANDARD_MIC_DEBUG_WAV_PATH MOUNT_POINT"/stdmic.wav"
@@ -655,6 +655,30 @@ static void s_handle_record_failure(const char *line1, const char *line2,
 #endif
 }
 
+static const char *s_basename_or_default(const char *path, const char *fallback)
+{
+    if (fallback == NULL) {
+        fallback = "unnamed file";
+    }
+    if (path == NULL || path[0] == '\0') {
+        return fallback;
+    }
+    const char *filename = strrchr(path, '/');
+    if (filename != NULL) {
+        filename++;
+        if (filename[0] != '\0') {
+            return filename;
+        }
+    }
+    return path[0] != '\0' ? path : fallback;
+}
+
+static bool s_file_exists(const char *path)
+{
+    struct stat st;
+    return path != NULL && stat(path, &st) == 0;
+}
+
 
 // Initializes peripherals and handles record/USB switching loop.
 void app_main(void)
@@ -870,25 +894,26 @@ void app_main(void)
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Mic capture failed");
             s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
-            s_handle_record_failure("Recording failed", "mic capture failed",
-                                    "mic capture failed", &consecutive_record_failures);
+            if (s_file_exists(mic_path)) {
+                const char *filename = s_basename_or_default(mic_path, "unnamed file");
+                s_handle_record_failure("Mic file saved", filename,
+                                        "mic capture reported fail after file save",
+                                        &consecutive_record_failures);
+            } else {
+                s_handle_record_failure("Recording failed", "mic capture failed",
+                                        "mic capture failed", &consecutive_record_failures);
+            }
 #if ENABLE_CONTACT_MIC_RECORDING
         } else if (contact_ret != ESP_OK) {
             ESP_LOGE(TAG, "Contact mic capture failed");
             s_append_event_log("main: mic_capture_contact_wait failed %s", esp_err_to_name(contact_ret));
-            s_handle_record_failure("Recording failed", "contact capture failed",
+            s_handle_record_failure("Mic saved; c fail",
+                                    s_basename_or_default(mic_path, "unnamed file"),
                                     "contact mic capture failed", &consecutive_record_failures);
 #endif
         } else {
             char line1[32];
-            const char *filename = strrchr(mic_path, '/');
-            if (filename != NULL) {
-                filename++;
-            } else if (mic_path[0] != '\0') {
-                filename = mic_path;
-            } else {
-                filename = "unnamed file";
-            }
+            const char *filename = s_basename_or_default(mic_path, "unnamed file");
             snprintf(line1, sizeof(line1), "Recorded %ds at", captured_seconds);
             button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
             if (use_index_name) {
