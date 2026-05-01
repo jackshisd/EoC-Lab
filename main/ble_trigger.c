@@ -23,6 +23,8 @@
 
 #define ENABLE_BLE_TRIGGER 1
 #define BLE_TRIGGER_DEBOUNCE_MS 500
+#define BLE_SCAN_INTERVAL_UNITS 0x0080
+#define BLE_SCAN_WINDOW_UNITS   0x0008
 
 static const char *TAG = "ble_trigger";
 
@@ -142,8 +144,8 @@ static int s_ble_gap_event(struct ble_gap_event *event, void *arg)
 static void s_ble_start_scan(void)
 {
     struct ble_gap_disc_params params = {
-        .itvl = 0x0040,
-        .window = 0x0010,
+        .itvl = BLE_SCAN_INTERVAL_UNITS,
+        .window = BLE_SCAN_WINDOW_UNITS,
         .filter_duplicates = 0,
         .passive = 1,
     };
