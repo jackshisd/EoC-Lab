@@ -24,6 +24,7 @@
 #define I2S_DIN_IO         39 // Microphone data input
 #define MIC_GAIN_MULT      2  // Microphone gain multiplier
 #define MIC_CHANNELS       2  // Stereo capture (left + right)
+#define MIC_AUTOSAVE_INTERVAL_MS 3000
 
 #define CONTACT_CODEC_I2C_PORT I2C_NUM_1
 #define CONTACT_CODEC_I2C_SDA  1
@@ -353,7 +354,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     const size_t bytes_per_sample = 4;
     const size_t bytes_per_frame = bytes_per_sample * MIC_CHANNELS;
     const size_t frames_per_chunk = 512;
-    const int flush_interval_ms = 1000;
+    const int flush_interval_ms = MIC_AUTOSAVE_INTERVAL_MS;
     uint32_t next_flush_ms = flush_interval_ms;
     const size_t chunk_bytes = frames_per_chunk * bytes_per_frame;
     uint8_t *buffer = (uint8_t *)malloc(chunk_bytes);
@@ -731,6 +732,8 @@ esp_err_t mic_capture_contact_to_file(const char *path, int seconds, int *out_se
     const size_t bytes_per_sample = CONTACT_BITS_PER_SAMPLE / 8;
     const size_t bytes_per_frame = bytes_per_sample * CONTACT_MIC_CHANNELS;
     const size_t frames_per_chunk = 512;
+    const int flush_interval_ms = MIC_AUTOSAVE_INTERVAL_MS;
+    uint32_t next_flush_ms = flush_interval_ms;
     const size_t chunk_bytes = frames_per_chunk * bytes_per_frame;
     const size_t total_frames = stop_on_button ? SIZE_MAX : (size_t)I2S_SAMPLE_RATE_HZ * (size_t)seconds;
     uint8_t *buffer = (uint8_t *)malloc(chunk_bytes);
@@ -786,11 +789,24 @@ esp_err_t mic_capture_contact_to_file(const char *path, int seconds, int *out_se
 
         fwrite(buffer, 1, bytes_read, f);
         captured_frames += bytes_read / bytes_per_frame;
+
+        if ((captured_frames * 1000 / I2S_SAMPLE_RATE_HZ) >= next_flush_ms) {
+            const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
+            fflush(f);
+            fsync(fileno(f));
+            fseek(f, 0, SEEK_SET);
+            s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, CONTACT_BITS_PER_SAMPLE,
+                               CONTACT_MIC_CHANNELS, data_bytes);
+            fseek(f, 0, SEEK_END);
+            next_flush_ms += flush_interval_ms;
+        }
     }
 
     const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
     fseek(f, 0, SEEK_SET);
     s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, CONTACT_BITS_PER_SAMPLE, CONTACT_MIC_CHANNELS, data_bytes);
+    fflush(f);
+    fsync(fileno(f));
 
     free(buffer);
     fclose(f);
