@@ -181,13 +181,17 @@ PWDN and RESET are tied in hardware (PWDN -> GND, RESET -> 3.3V). In software, t
 
 **Playback note:** `VIDxxxx.MJP` is a raw MJPEG stream (not a container). VLC can play it; for QuickTime, convert to AVI/MP4.
 
+**Current camera behavior:**
+
+- Video recording is capped in software at `10 FPS` to reduce camera/SD load and improve stability.
+
 ### BLE trigger and timestamped filenames
 
 The device scans BLE advertisements and uses a UUID-encoded timestamp to name files:
 
 - **Video:** `MMDDHHMM.MJP`
 - **Audio:** `MMDDHHMM.WAV`
-- **Contact audio:** a contact-mic WAV derived from the same BLE timestamp, with a contact-specific filename prefix
+- **Contact audio:** a contact-mic WAV derived from the same BLE timestamp, with the first timestamp character replaced by `C` to stay 8.3-safe
 
 If no valid BLE timestamp is seen, it falls back to the index names:
 
@@ -206,7 +210,7 @@ If no valid BLE timestamp is seen, it falls back to the index names:
 
 - BLE trigger scanning is enabled.
 - Scanning is passive with duplicate filtering disabled.
-- Scan duty cycle was reduced from continuous `10 ms / 10 ms` (~100%) to `10 ms / 40 ms` (~25%) to reduce radio and power load while keeping start/stop trigger support during recording.
+- Scan duty cycle was reduced from continuous `10 ms / 10 ms` (~100%) to `5 ms / 80 ms` (~6.25%) to reduce radio and power load while keeping start/stop trigger support during recording.
 
 ### Button
 

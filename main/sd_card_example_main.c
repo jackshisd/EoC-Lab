@@ -816,11 +816,16 @@ void app_main(void)
         char contact_path[EXAMPLE_MAX_CHAR_SIZE];
         char video_path[EXAMPLE_MAX_CHAR_SIZE];
         char timestamp[16];
+        char contact_timestamp[16];
         bool use_index_name = true;
         if (ble_trigger_get_timestamp(timestamp, sizeof(timestamp))) {
             // 8.3-safe names using YYMMDDHH (hour resolution) for both media types.
             snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/%s.WAV", timestamp);
-            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/C%s.WAV", timestamp);
+            snprintf(contact_timestamp, sizeof(contact_timestamp), "%s", timestamp);
+            if (contact_timestamp[0] != '\0') {
+                contact_timestamp[0] = 'C';
+            }
+            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/%s.WAV", contact_timestamp);
             snprintf(video_path, sizeof(video_path), MOUNT_POINT"/%s.MJP", timestamp);
             use_index_name = false;
         } else {

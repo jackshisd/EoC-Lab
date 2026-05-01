@@ -47,7 +47,7 @@ void camera_ov2640_get_default_pins(camera_ov2640_pins_t *pins)
 #define VIDEO_JPEG_QUALITY 12
 #define VIDEO_XCLK_HZ      10000000
 #define VIDEO_FLUSH_BYTES  (4 * 1024 * 1024)
-#define VIDEO_TARGET_FPS   14
+#define VIDEO_TARGET_FPS   10
 #define VIDEO_FRAME_PERIOD_US (1000000 / VIDEO_TARGET_FPS)
 
 static const char *TAG = "example";
