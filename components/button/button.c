@@ -60,6 +60,17 @@ static void s_log_info(const char *text)
     ESP_LOGI(TAG, "%s", text);
 }
 
+static void s_set_status_line(const char *line1, const char *line2)
+{
+    if (line1 == NULL) {
+        line1 = "";
+    }
+    if (line2 == NULL) {
+        line2 = "";
+    }
+    snprintf(s_status_line, sizeof(s_status_line), "%s\n%s", line1, line2);
+}
+
 static void s_handle_short_press(void)
 {
     if (s_recording) {
@@ -69,19 +80,20 @@ static void s_handle_short_press(void)
     }
 }
 
-static void s_handle_long_press(void)
+static void s_handle_long_press_internal(const char *reason)
 {
     if (s_recording) {
         s_recording = false;
         s_paused = false;
+        s_set_status_line("Saving...", reason != NULL ? reason : "stop requested");
         s_log_info("Recording stopped");
-        s_append_event_log("button long press -> stop");
+        s_append_event_log("%s -> stop", reason != NULL ? reason : "button long press");
     } else {
         s_recording = true;
         s_paused = false;
         s_record_start_tick = xTaskGetTickCount();
         s_log_info("Recording started");
-        s_append_event_log("button long press -> start");
+        s_append_event_log("%s -> start", reason != NULL ? reason : "button long press");
     }
 }
 
@@ -160,7 +172,7 @@ static void s_button_task(void *arg)
                 } else {
                     TickType_t held = xTaskGetTickCount() - press_tick;
                     if (held >= pdMS_TO_TICKS(LONG_PRESS_MS)) {
-                        s_handle_long_press();
+                        s_handle_long_press_internal("button stop");
                     } else {
                         s_handle_short_press();
                     }
@@ -190,13 +202,7 @@ void button_init(void)
 // Sets the idle OLED display lines shown when not recording.
 void button_set_idle_display(const char *line1, const char *line2)
 {
-    if (line1 == NULL) {
-        line1 = "";
-    }
-    if (line2 == NULL) {
-        line2 = "";
-    }
-    snprintf(s_status_line, sizeof(s_status_line), "%s\n%s", line1, line2);
+    s_set_status_line(line1, line2);
 }
 
 void button_force_idle(void)
@@ -227,5 +233,10 @@ void button_trigger_short_press(void)
 
 void button_trigger_long_press(void)
 {
-    s_handle_long_press();
+    s_handle_long_press_internal("button stop");
+}
+
+void button_trigger_long_press_with_reason(const char *reason)
+{
+    s_handle_long_press_internal(reason);
 }

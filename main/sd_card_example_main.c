@@ -679,6 +679,69 @@ static bool s_file_exists(const char *path)
     return path != NULL && stat(path, &st) == 0;
 }
 
+static const char *s_mic_stage_label(const char *stage)
+{
+    if (stage == NULL) {
+        return "mic fail";
+    }
+    if (strcmp(stage, "read fail") == 0) {
+        return "mic read fail";
+    }
+    if (strcmp(stage, "write fail") == 0) {
+        return "mic write fail";
+    }
+    if (strcmp(stage, "flush fail") == 0) {
+        return "mic flush fail";
+    }
+    if (strcmp(stage, "seek fail") == 0) {
+        return "mic seek fail";
+    }
+    if (strcmp(stage, "file fail") == 0) {
+        return "mic file fail";
+    }
+    if (strcmp(stage, "alloc fail") == 0) {
+        return "mic alloc fail";
+    }
+    if (strcmp(stage, "i2s init fail") == 0 || strcmp(stage, "i2s en fail") == 0 ||
+        strcmp(stage, "i2s new fail") == 0) {
+        return "mic i2s fail";
+    }
+    return "mic fail";
+}
+
+static const char *s_contact_stage_label(const char *stage)
+{
+    if (stage == NULL) {
+        return "contact fail";
+    }
+    if (strcmp(stage, "codec fail") == 0 || strcmp(stage, "codec init") == 0) {
+        return "codec fail";
+    }
+    if (strcmp(stage, "read fail") == 0) {
+        return "contact read fail";
+    }
+    if (strcmp(stage, "write fail") == 0) {
+        return "contact write fail";
+    }
+    if (strcmp(stage, "flush fail") == 0) {
+        return "contact flush";
+    }
+    if (strcmp(stage, "seek fail") == 0) {
+        return "contact seek";
+    }
+    if (strcmp(stage, "file fail") == 0) {
+        return "contact file";
+    }
+    if (strcmp(stage, "alloc fail") == 0) {
+        return "contact alloc";
+    }
+    if (strcmp(stage, "i2s init fail") == 0 || strcmp(stage, "i2s en fail") == 0 ||
+        strcmp(stage, "i2s new fail") == 0) {
+        return "contact i2s";
+    }
+    return "contact fail";
+}
+
 
 // Initializes peripherals and handles record/USB switching loop.
 void app_main(void)
@@ -901,25 +964,25 @@ void app_main(void)
             s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
             if (s_file_exists(mic_path)) {
                 const char *filename = s_basename_or_default(mic_path, "unnamed file");
-                s_handle_record_failure("Mic file saved", filename,
+                s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), filename,
                                         "mic capture reported fail after file save",
                                         &consecutive_record_failures);
             } else {
-                s_handle_record_failure("Recording failed", "mic capture failed",
+                s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), "no mic file",
                                         "mic capture failed", &consecutive_record_failures);
             }
 #if ENABLE_CONTACT_MIC_RECORDING
         } else if (contact_ret != ESP_OK) {
             ESP_LOGE(TAG, "Contact mic capture failed");
             s_append_event_log("main: mic_capture_contact_wait failed %s", esp_err_to_name(contact_ret));
-            s_handle_record_failure("Mic saved; c fail",
+            s_handle_record_failure(s_contact_stage_label(mic_capture_contact_debug_last_stage()),
                                     s_basename_or_default(mic_path, "unnamed file"),
                                     "contact mic capture failed", &consecutive_record_failures);
 #endif
         } else {
             char line1[32];
             const char *filename = s_basename_or_default(mic_path, "unnamed file");
-            snprintf(line1, sizeof(line1), "Recorded %ds at", captured_seconds);
+            snprintf(line1, sizeof(line1), "Saved %ds in", captured_seconds);
             button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
             if (use_index_name) {
                 file_index++;

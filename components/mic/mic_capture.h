@@ -5,6 +5,7 @@
 
 // Blocking capture (existing behavior).
 esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds);
+const char *mic_capture_last_stage(void);
 esp_err_t mic_capture_contact_init(void);
 bool mic_capture_contact_is_ready(void);
 esp_err_t mic_capture_contact_to_file(const char *path, int seconds, int *out_seconds);

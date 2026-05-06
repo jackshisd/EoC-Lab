@@ -104,7 +104,7 @@ static void s_ble_handle_trigger(bool is_long)
     }
     s_ble_last_trigger_us = now_us;
     if (is_long) {
-        button_trigger_long_press();
+        button_trigger_long_press_with_reason("BLE stop");
     } else {
         button_trigger_short_press();
     }
