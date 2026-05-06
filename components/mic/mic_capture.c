@@ -39,6 +39,7 @@
 #define CONTACT_I2S_WS_IO      44
 #define CONTACT_BITS_PER_SAMPLE 16
 #define CONTACT_MIC_CHANNELS   1
+#define CONTACT_CODEC_BOOT_DELAY_MS 500
 
 static const char *TAG = "mic";
 
@@ -51,6 +52,7 @@ static TaskHandle_t s_mic_task = NULL;
 static volatile bool s_mic_running = false;
 static volatile int s_mic_last_seconds = 0;
 static volatile esp_err_t s_mic_last_result = ESP_OK;
+static const char *s_mic_last_stage = "idle";
 static TaskHandle_t s_contact_task = NULL;
 static volatile bool s_contact_running = false;
 static volatile int s_contact_last_seconds = 0;
@@ -137,6 +139,11 @@ static void s_contact_task_entry(void *arg)
     s_contact_task = NULL;
     free(args);
     vTaskDelete(NULL);
+}
+
+const char *mic_capture_last_stage(void)
+{
+    return s_mic_last_stage;
 }
 
 esp_err_t mic_capture_start(const char *path, int seconds)
@@ -289,12 +296,14 @@ static void s_write_wav_header(FILE *f, uint32_t sample_rate_hz, uint16_t bits_p
 // Captures I2S audio to a file; stops on button or after N seconds.
 esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 {
+    s_mic_last_stage = "start";
     esp_err_t ret;
     i2s_chan_handle_t rx_handle = NULL;
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
 
     ret = i2s_new_channel(&chan_cfg, NULL, &rx_handle);
     if (ret != ESP_OK) {
+        s_mic_last_stage = "i2s new fail";
         s_log_error("I2S channel create (%s)", esp_err_to_name(ret));
         return ret;
     }
@@ -319,6 +328,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 
     ret = i2s_channel_init_std_mode(rx_handle, &std_cfg);
     if (ret != ESP_OK) {
+        s_mic_last_stage = "i2s init fail";
         s_log_error("I2S init std mode (%s)", esp_err_to_name(ret));
         i2s_del_channel(rx_handle);
         return ret;
@@ -326,6 +336,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 
     ret = i2s_channel_enable(rx_handle);
     if (ret != ESP_OK) {
+        s_mic_last_stage = "i2s en fail";
         s_log_error("I2S enable (%s)", esp_err_to_name(ret));
         i2s_del_channel(rx_handle);
         return ret;
@@ -339,6 +350,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 
     FILE *f = fopen(path, "wb");
     if (f == NULL) {
+        s_mic_last_stage = "file fail";
         s_log_error("Open failed %s (%d)", path, errno);
         i2s_channel_disable(rx_handle);
         i2s_del_channel(rx_handle);
@@ -359,6 +371,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     const size_t chunk_bytes = frames_per_chunk * bytes_per_frame;
     uint8_t *buffer = (uint8_t *)malloc(chunk_bytes);
     if (buffer == NULL) {
+        s_mic_last_stage = "alloc fail";
         s_log_error("Audio buffer alloc failed");
         fclose(f);
         i2s_channel_disable(rx_handle);
@@ -371,6 +384,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     if (write_wav) {
         s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, 0);
     }
+    s_mic_last_stage = "recording";
     while (captured_frames < total_frames) {
         if (stop_on_button && !button_is_recording()) {
             s_log_info("Stop requested");
@@ -385,6 +399,7 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
 
         ret = i2s_channel_read(rx_handle, buffer, bytes_to_read, &bytes_read, pdMS_TO_TICKS(1000));
         if (ret != ESP_OK) {
+            s_mic_last_stage = "read fail";
             s_log_error("I2S read failed (%s)", esp_err_to_name(ret));
             s_append_event_log("mic error: i2s_read %s", esp_err_to_name(ret));
             break;
@@ -399,24 +414,50 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
                     samples[i] = s_apply_gain(samples[i]);
                 }
             }
-            fwrite(buffer, 1, bytes_read, f);
+            if (fwrite(buffer, 1, bytes_read, f) != bytes_read) {
+                s_mic_last_stage = "write fail";
+                ret = ESP_FAIL;
+                s_log_error("Audio write failed (%d)", errno);
+                s_append_event_log("mic error: fwrite errno=%d", errno);
+                break;
+            }
             captured_frames += bytes_read / bytes_per_frame;
         }
 
         if (write_wav && (captured_frames * 1000 / I2S_SAMPLE_RATE_HZ) >= next_flush_ms) {
             const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
-            fflush(f);
-            fsync(fileno(f));
-            fseek(f, 0, SEEK_SET);
+            if (fflush(f) != 0 || fsync(fileno(f)) != 0) {
+                s_mic_last_stage = "flush fail";
+                ret = ESP_FAIL;
+                s_log_error("Audio flush failed (%d)", errno);
+                s_append_event_log("mic error: flush errno=%d", errno);
+                break;
+            }
+            if (fseek(f, 0, SEEK_SET) != 0) {
+                s_mic_last_stage = "seek fail";
+                ret = ESP_FAIL;
+                s_log_error("Audio seek failed (%d)", errno);
+                s_append_event_log("mic error: seek errno=%d", errno);
+                break;
+            }
             s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, data_bytes);
-            fseek(f, 0, SEEK_END);
+            if (fseek(f, 0, SEEK_END) != 0) {
+                s_mic_last_stage = "seek fail";
+                ret = ESP_FAIL;
+                s_log_error("Audio seek end failed (%d)", errno);
+                s_append_event_log("mic error: seek_end errno=%d", errno);
+                break;
+            }
             next_flush_ms += flush_interval_ms;
         }
     }
 
     if (write_wav) {
         const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
-        fseek(f, 0, SEEK_SET);
+        if (fseek(f, 0, SEEK_SET) != 0) {
+            s_mic_last_stage = "seek fail";
+            ret = ESP_FAIL;
+        }
         s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, 32, MIC_CHANNELS, data_bytes);
     }
 
@@ -428,6 +469,9 @@ esp_err_t mic_capture_to_file(const char *path, int seconds, int *out_seconds)
     int captured_seconds = (int)(captured_frames / I2S_SAMPLE_RATE_HZ);
     if (out_seconds != NULL) {
         *out_seconds = captured_seconds;
+    }
+    if (ret == ESP_OK) {
+        s_mic_last_stage = "done";
     }
     s_log_info("Captured %d sec to %s", captured_seconds, path);
     s_append_event_log("mic stop: ret=%s seconds=%d button=%d path=%s",
@@ -623,6 +667,13 @@ esp_err_t mic_capture_contact_init(void)
 {
     s_contact_last_stage = "codec init";
     s_contact_last_reg = -1;
+    if (!s_contact_codec_initialized) {
+        s_contact_last_stage = "codec settle";
+        if (s_contact_status_callback != NULL) {
+            s_contact_status_callback("codec settle");
+        }
+        vTaskDelay(pdMS_TO_TICKS(CONTACT_CODEC_BOOT_DELAY_MS));
+    }
     return s_contact_es8388_init_until_ready();
 }
 
@@ -788,25 +839,51 @@ esp_err_t mic_capture_contact_to_file(const char *path, int seconds, int *out_se
         }
 
         fwrite(buffer, 1, bytes_read, f);
+        if (ferror(f)) {
+            s_contact_last_stage = "write fail";
+            ret = ESP_FAIL;
+            ESP_LOGE(TAG, "Contact write failed (%d)", errno);
+            break;
+        }
         captured_frames += bytes_read / bytes_per_frame;
 
         if ((captured_frames * 1000 / I2S_SAMPLE_RATE_HZ) >= next_flush_ms) {
             const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
-            fflush(f);
-            fsync(fileno(f));
-            fseek(f, 0, SEEK_SET);
+            if (fflush(f) != 0 || fsync(fileno(f)) != 0) {
+                s_contact_last_stage = "flush fail";
+                ret = ESP_FAIL;
+                ESP_LOGE(TAG, "Contact flush failed (%d)", errno);
+                break;
+            }
+            if (fseek(f, 0, SEEK_SET) != 0) {
+                s_contact_last_stage = "seek fail";
+                ret = ESP_FAIL;
+                ESP_LOGE(TAG, "Contact seek failed (%d)", errno);
+                break;
+            }
             s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, CONTACT_BITS_PER_SAMPLE,
                                CONTACT_MIC_CHANNELS, data_bytes);
-            fseek(f, 0, SEEK_END);
+            if (fseek(f, 0, SEEK_END) != 0) {
+                s_contact_last_stage = "seek fail";
+                ret = ESP_FAIL;
+                ESP_LOGE(TAG, "Contact seek end failed (%d)", errno);
+                break;
+            }
             next_flush_ms += flush_interval_ms;
         }
     }
 
     const uint32_t data_bytes = (uint32_t)(captured_frames * bytes_per_frame);
-    fseek(f, 0, SEEK_SET);
-    s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, CONTACT_BITS_PER_SAMPLE, CONTACT_MIC_CHANNELS, data_bytes);
-    fflush(f);
-    fsync(fileno(f));
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        s_contact_last_stage = "seek fail";
+        ret = ESP_FAIL;
+    } else {
+        s_write_wav_header(f, I2S_SAMPLE_RATE_HZ, CONTACT_BITS_PER_SAMPLE, CONTACT_MIC_CHANNELS, data_bytes);
+        if (fflush(f) != 0 || fsync(fileno(f)) != 0) {
+            s_contact_last_stage = "flush fail";
+            ret = ESP_FAIL;
+        }
+    }
 
     free(buffer);
     fclose(f);

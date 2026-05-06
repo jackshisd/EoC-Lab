@@ -9,3 +9,4 @@ void button_set_idle_display(const char *line1, const char *line2);
 void button_force_idle(void);
 void button_trigger_short_press(void);
 void button_trigger_long_press(void);
+void button_trigger_long_press_with_reason(const char *reason);
