@@ -7265,12 +7265,6 @@
 		(uuid "00c7d046-f086-4661-8f50-fe86729a5dc5")
 	)
 	(junction
-		(at 260.35 242.57)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "0443446d-1462-4bac-ba82-c167b49defd3")
-	)
-	(junction
 		(at 63.5 166.37)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -7353,6 +7347,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "3dc49f79-85db-4016-a403-0a23ffeebefb")
+	)
+	(junction
+		(at 279.4 242.57)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "3ea1fb13-c70e-4640-ba22-9f373115853b")
 	)
 	(junction
 		(at 259.08 64.77)
@@ -7762,7 +7762,7 @@
 	)
 	(wire
 		(pts
-			(xy 275.59 242.57) (xy 284.48 242.57)
+			(xy 275.59 242.57) (xy 279.4 242.57)
 		)
 		(stroke
 			(width 0)
@@ -7822,7 +7822,7 @@
 	)
 	(wire
 		(pts
-			(xy 260.35 241.3) (xy 260.35 242.57)
+			(xy 279.4 240.03) (xy 279.4 242.57)
 		)
 		(stroke
 			(width 0)
@@ -7952,7 +7952,7 @@
 	)
 	(wire
 		(pts
-			(xy 260.35 242.57) (xy 237.49 242.57)
+			(xy 237.49 242.57) (xy 267.97 242.57)
 		)
 		(stroke
 			(width 0)
@@ -8062,6 +8062,16 @@
 	)
 	(wire
 		(pts
+			(xy 279.4 242.57) (xy 284.48 242.57)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "4910af1b-dae5-46e9-aa33-c385452845ad")
+	)
+	(wire
+		(pts
 			(xy 187.96 73.66) (xy 209.55 73.66)
 		)
 		(stroke
@@ -8139,16 +8149,6 @@
 			(type default)
 		)
 		(uuid "54d00c8f-75b3-456c-8e27-3aa16a666190")
-	)
-	(wire
-		(pts
-			(xy 260.35 242.57) (xy 267.97 242.57)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "551d0919-b9f8-469f-96c7-02c8936016d5")
 	)
 	(wire
 		(pts
@@ -10482,21 +10482,24 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
+		(fields_autoplaced yes)
 		(uuid "01ad14b8-89d4-46c4-a073-83d822be1469")
 		(property "Reference" "R16"
-			(at 189.992 71.882 0)
+			(at 190.5 76.1999 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify right)
 			)
 		)
 		(property "Value" "560k"
-			(at 191.77 77.47 0)
+			(at 190.5 78.7399 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
+				(justify right)
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_0402_1005Metric"
@@ -10558,7 +10561,7 @@
 				)
 			)
 		)
-		(property "Value" "1k"
+		(property "Value" "4.7k"
 			(at 155.194 46.736 90)
 			(effects
 				(font
@@ -13399,7 +13402,7 @@
 		(on_board yes)
 		(dnp no)
 		(uuid "386f00e3-5d83-4834-adb2-d8142d97b76b")
-		(property "Reference" "TP10"
+		(property "Reference" "1V2"
 			(at 312.674 193.802 0)
 			(effects
 				(font
@@ -13451,7 +13454,7 @@
 		(instances
 			(project "Main Board"
 				(path "/06300a21-1646-41b0-b473-1c39557d6dab"
-					(reference "TP10")
+					(reference "1V2")
 					(unit 1)
 				)
 			)
@@ -14330,7 +14333,7 @@
 		(on_board yes)
 		(dnp no)
 		(uuid "4a618c25-02e1-4527-b250-243f0266d8a7")
-		(property "Reference" "TP4"
+		(property "Reference" "VIN1"
 			(at 121.666 67.818 0)
 			(effects
 				(font
@@ -14382,7 +14385,7 @@
 		(instances
 			(project "Main Board"
 				(path "/06300a21-1646-41b0-b473-1c39557d6dab"
-					(reference "TP4")
+					(reference "VIN1")
 					(unit 1)
 				)
 			)
@@ -15758,7 +15761,7 @@
 				)
 			)
 		)
-		(property "Value" "0.4"
+		(property "Value" "0"
 			(at 186.436 26.416 0)
 			(effects
 				(font
@@ -15887,7 +15890,7 @@
 	)
 	(symbol
 		(lib_id "Device:C_Small")
-		(at 260.35 238.76 180)
+		(at 279.4 237.49 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -15895,7 +15898,7 @@
 		(dnp no)
 		(uuid "78dfc26f-a993-4486-b409-379836a6fc1c")
 		(property "Reference" "C14"
-			(at 265.938 240.284 0)
+			(at 284.988 239.014 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15904,7 +15907,7 @@
 			)
 		)
 		(property "Value" "0.1uF"
-			(at 267.462 237.236 0)
+			(at 286.512 235.966 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15913,7 +15916,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric"
-			(at 260.35 238.76 0)
+			(at 279.4 237.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15922,7 +15925,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 260.35 238.76 0)
+			(at 279.4 237.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15931,7 +15934,7 @@
 			)
 		)
 		(property "Description" "Unpolarized capacitor, small symbol"
-			(at 260.35 238.76 0)
+			(at 279.4 237.49 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -15982,7 +15985,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Connector_PinHeader_2.00mm:PinHeader_1x02_P2.00mm_Vertical"
+		(property "Footprint" "LED_SMD:LED_0603_1608Metric"
 			(at 88.9 40.64 0)
 			(effects
 				(font
@@ -16517,7 +16520,7 @@
 				)
 			)
 		)
-		(property "Value" "1k"
+		(property "Value" "4.7k"
 			(at 155.194 56.896 90)
 			(effects
 				(font
@@ -18419,7 +18422,7 @@
 		(on_board yes)
 		(dnp no)
 		(uuid "b37b7c9b-e04e-4879-91e6-efa8194c841c")
-		(property "Reference" "TP8"
+		(property "Reference" "A2V8"
 			(at 330.454 221.742 0)
 			(effects
 				(font
@@ -18471,7 +18474,7 @@
 		(instances
 			(project "Main Board"
 				(path "/06300a21-1646-41b0-b473-1c39557d6dab"
-					(reference "TP8")
+					(reference "A2V8")
 					(unit 1)
 				)
 			)
@@ -19922,7 +19925,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_TL3342"
 			(at 35.56 57.15 0)
 			(effects
 				(font
@@ -20235,7 +20238,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_Tactile_SPST_NO_Straight_CK_PTS636Sx25SMTRLFS"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_TL3342"
 			(at 109.22 46.99 0)
 			(effects
 				(font
@@ -22472,7 +22475,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 260.35 236.22 180)
+		(at 279.4 234.95 180)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -22481,7 +22484,7 @@
 		(fields_autoplaced yes)
 		(uuid "fe3692ad-47f6-43df-ad00-79598926d8b5")
 		(property "Reference" "#PWR077"
-			(at 260.35 229.87 0)
+			(at 279.4 228.6 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22490,7 +22493,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 260.35 231.14 0)
+			(at 279.4 229.87 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22498,7 +22501,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 260.35 236.22 0)
+			(at 279.4 234.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22507,7 +22510,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 260.35 236.22 0)
+			(at 279.4 234.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -22516,7 +22519,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 260.35 236.22 0)
+			(at 279.4 234.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
