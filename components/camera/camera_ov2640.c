@@ -178,7 +178,11 @@ static void s_camera_record_task(void *arg)
         }
 
         if (button_is_paused() && s_black_jpeg && s_black_jpeg_len > 0) {
-            fwrite(s_black_jpeg, 1, s_black_jpeg_len, f);
+            if (fwrite(s_black_jpeg, 1, s_black_jpeg_len, f) != s_black_jpeg_len) {
+                ESP_LOGE(TAG, "Camera paused-frame write failed (%d)", errno);
+                s_append_event_log("camera write fail: errno=%d", errno);
+                break;
+            }
             bytes_since_flush += s_black_jpeg_len;
         } else {
             if (fb->len < 4 || fb->buf[0] != 0xFF || fb->buf[1] != 0xD8 ||
@@ -191,7 +195,12 @@ static void s_camera_record_task(void *arg)
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
             }
-            fwrite(fb->buf, 1, fb->len, f);
+            if (fwrite(fb->buf, 1, fb->len, f) != fb->len) {
+                ESP_LOGE(TAG, "Camera frame write failed (%d)", errno);
+                s_append_event_log("camera write fail: errno=%d", errno);
+                esp_camera_fb_return(fb);
+                break;
+            }
             bytes_since_flush += fb->len;
             good_frame_count++;
             if ((good_frame_count % 50) == 0) {
@@ -202,8 +211,11 @@ static void s_camera_record_task(void *arg)
         esp_camera_fb_return(fb);
 
         if (bytes_since_flush >= VIDEO_FLUSH_BYTES) {
-            fflush(f);
-            fsync(fileno(f));
+            if (fflush(f) != 0 || fsync(fileno(f)) != 0) {
+                ESP_LOGE(TAG, "Camera flush failed (%d)", errno);
+                s_append_event_log("camera flush fail: errno=%d", errno);
+                break;
+            }
             bytes_since_flush = 0;
         }
     }

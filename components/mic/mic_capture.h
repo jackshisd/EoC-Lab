@@ -18,6 +18,8 @@ void mic_capture_contact_set_status_callback(void (*callback)(const char *status
 esp_err_t mic_capture_start(const char *path, int seconds);
 bool mic_capture_is_running(void);
 esp_err_t mic_capture_wait(int *out_seconds, TickType_t timeout);
+TickType_t mic_capture_last_progress_tick(void);
 esp_err_t mic_capture_contact_start(const char *path, int seconds);
 bool mic_capture_contact_is_running(void);
 esp_err_t mic_capture_contact_wait(int *out_seconds, TickType_t timeout);
+TickType_t mic_capture_contact_last_progress_tick(void);

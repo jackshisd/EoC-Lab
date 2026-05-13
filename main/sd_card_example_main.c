@@ -49,6 +49,7 @@ static const char *TAG = "example";
 #define CONTACT_MIC_DEBUG_WAV_PATH MOUNT_POINT"/es8388.wav"
 #define STANDARD_MIC_DEBUG_WAV_PATH MOUNT_POINT"/stdmic.wav"
 #define ENABLE_CONTACT_MIC_RECORDING 1
+#define RECORDING_STALL_TIMEOUT_MS 15000
 
 #define OLED_I2C_SDA       1
 #define OLED_I2C_SCL       2
@@ -679,6 +680,11 @@ static bool s_file_exists(const char *path)
     return path != NULL && stat(path, &st) == 0;
 }
 
+static bool s_progress_stalled(TickType_t last_tick, TickType_t timeout_ticks, TickType_t now)
+{
+    return last_tick != 0 && (now - last_tick) > timeout_ticks;
+}
+
 static const char *s_mic_stage_label(const char *stage)
 {
     if (stage == NULL) {
@@ -954,12 +960,53 @@ void app_main(void)
         }
 #endif
 
-        ret = mic_capture_wait(&captured_seconds, portMAX_DELAY);
+        bool mic_stalled = false;
+        bool contact_stalled = false;
+        const TickType_t stall_timeout_ticks = pdMS_TO_TICKS(RECORDING_STALL_TIMEOUT_MS);
+        while (mic_capture_is_running()
+#if ENABLE_CONTACT_MIC_RECORDING
+               || mic_capture_contact_is_running()
+#endif
+        ) {
+            const TickType_t now = xTaskGetTickCount();
+            if (mic_capture_is_running() &&
+                s_progress_stalled(mic_capture_last_progress_tick(), stall_timeout_ticks, now)) {
+                mic_stalled = true;
+                s_append_event_log("main: mic stalled, forcing stop");
+                button_force_idle();
+                break;
+            }
+#if ENABLE_CONTACT_MIC_RECORDING
+            if (mic_capture_contact_is_running() &&
+                s_progress_stalled(mic_capture_contact_last_progress_tick(), stall_timeout_ticks, now)) {
+                contact_stalled = true;
+                s_append_event_log("main: contact stalled, forcing stop");
+                button_force_idle();
+                break;
+            }
+#endif
+            vTaskDelay(pdMS_TO_TICKS(200));
+        }
+
+        ret = mic_capture_wait(&captured_seconds, pdMS_TO_TICKS(1000));
         esp_err_t contact_ret = ESP_OK;
 #if ENABLE_CONTACT_MIC_RECORDING
-        contact_ret = mic_capture_contact_wait(&contact_captured_seconds, portMAX_DELAY);
+        contact_ret = mic_capture_contact_wait(&contact_captured_seconds, pdMS_TO_TICKS(1000));
 #endif
-        if (ret != ESP_OK) {
+        if (mic_stalled || ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGE(TAG, "Mic capture stalled");
+            s_append_event_log("main: mic capture stall timeout");
+            s_handle_record_failure("mic stalled", s_basename_or_default(mic_path, "unnamed file"),
+                                    "mic capture stalled", &consecutive_record_failures);
+#if ENABLE_CONTACT_MIC_RECORDING
+        } else if (contact_stalled || contact_ret == ESP_ERR_TIMEOUT) {
+            ESP_LOGE(TAG, "Contact mic capture stalled");
+            s_append_event_log("main: contact capture stall timeout");
+            s_handle_record_failure("contact stalled",
+                                    s_basename_or_default(mic_path, "unnamed file"),
+                                    "contact mic capture stalled", &consecutive_record_failures);
+#endif
+        } else if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Mic capture failed");
             s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
             if (s_file_exists(mic_path)) {
