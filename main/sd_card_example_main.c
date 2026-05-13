@@ -228,6 +228,7 @@ static esp_err_t s_storage_init_sdmmc(sdmmc_card_t **card)
     esp_err_t ret = ESP_OK;
     bool host_init = false;
     sdmmc_card_t *sd_card = NULL;
+    bool showed_missing_card = false;
 
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 #if CONFIG_EXAMPLE_SDMMC_SPEED_HS
@@ -290,9 +291,17 @@ static esp_err_t s_storage_init_sdmmc(sdmmc_card_t **card)
 
     while (sdmmc_card_init(&host, sd_card)) {
         ESP_LOGE(TAG, "Insert uSD card. Retrying...");
+        if (!showed_missing_card) {
+            button_set_idle_display("No SD card", "insert card");
+            (void)oled_ssd1306_display_text("No SD card\ninsert card");
+            showed_missing_card = true;
+        }
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
 
+    if (showed_missing_card) {
+        button_set_idle_display("Ready", "");
+    }
     sdmmc_card_print_info(stdout, sd_card);
     *card = sd_card;
     return ESP_OK;
