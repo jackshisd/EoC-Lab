@@ -21,6 +21,8 @@ static const char *TAG = "button";
 static volatile bool s_paused = false;
 static volatile bool s_recording = false;
 static volatile TickType_t s_record_start_tick = 0;
+static volatile uint32_t s_record_elapsed_offset_seconds = 0;
+static volatile uint32_t s_record_last_elapsed_seconds = 0;
 static char s_status_line[64] = "Ready";
 static TickType_t s_oled_next_retry_tick = 0;
 static uint8_t s_oled_fail_count = 0;
@@ -83,6 +85,7 @@ static void s_handle_short_press(void)
 static void s_handle_long_press_internal(const char *reason)
 {
     if (s_recording) {
+        s_record_last_elapsed_seconds = button_get_record_elapsed_seconds();
         s_recording = false;
         s_paused = false;
         s_set_status_line("Saving...", reason != NULL ? reason : "stop requested");
@@ -92,6 +95,8 @@ static void s_handle_long_press_internal(const char *reason)
         s_recording = true;
         s_paused = false;
         s_record_start_tick = xTaskGetTickCount();
+        s_record_elapsed_offset_seconds = 0;
+        s_record_last_elapsed_seconds = 0;
         s_log_info("Recording started");
         s_append_event_log("%s -> start", reason != NULL ? reason : "button long press");
     }
@@ -109,8 +114,7 @@ static void s_oled_task(void *arg)
         }
         esp_err_t ret;
         if (s_recording) {
-            TickType_t elapsed_ticks = xTaskGetTickCount() - s_record_start_tick;
-            uint32_t elapsed_seconds = (uint32_t)(elapsed_ticks / configTICK_RATE_HZ);
+            uint32_t elapsed_seconds = button_get_record_elapsed_seconds();
             uint32_t hours = elapsed_seconds / 3600;
             uint32_t minutes = (elapsed_seconds % 3600) / 60;
             uint32_t seconds = elapsed_seconds % 60;
@@ -207,9 +211,13 @@ void button_set_idle_display(const char *line1, const char *line2)
 
 void button_force_idle(void)
 {
+    if (s_recording) {
+        s_record_last_elapsed_seconds = button_get_record_elapsed_seconds();
+    }
     s_recording = false;
     s_paused = false;
     s_record_start_tick = 0;
+    s_record_elapsed_offset_seconds = 0;
     s_log_info("Recording forced idle");
     s_append_event_log("button force idle");
 }
@@ -239,4 +247,25 @@ void button_trigger_long_press(void)
 void button_trigger_long_press_with_reason(const char *reason)
 {
     s_handle_long_press_internal(reason);
+}
+
+uint32_t button_get_record_elapsed_seconds(void)
+{
+    if (s_recording) {
+        TickType_t elapsed_ticks = xTaskGetTickCount() - s_record_start_tick;
+        return s_record_elapsed_offset_seconds +
+               (uint32_t)(elapsed_ticks / configTICK_RATE_HZ);
+    }
+    return s_record_last_elapsed_seconds;
+}
+
+void button_restart_recording_with_elapsed(uint32_t elapsed_seconds)
+{
+    s_record_elapsed_offset_seconds = elapsed_seconds;
+    s_record_last_elapsed_seconds = elapsed_seconds;
+    s_record_start_tick = xTaskGetTickCount();
+    s_paused = false;
+    s_recording = true;
+    s_log_info("Recording restarted after stall");
+    s_append_event_log("recording auto restart at %lu sec", (unsigned long)elapsed_seconds);
 }

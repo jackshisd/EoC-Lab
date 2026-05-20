@@ -689,6 +689,29 @@ static bool s_file_exists(const char *path)
     return path != NULL && stat(path, &st) == 0;
 }
 
+static void s_build_session_prefix(char out[7], uint32_t file_index)
+{
+    char timestamp[16];
+    if (ble_trigger_get_timestamp(timestamp, sizeof(timestamp)) && strlen(timestamp) >= 8) {
+        // BLE provides MMDDHHMM; use strict 8-char file stem DDHHMMXY.
+        memcpy(out, timestamp + 2, 6);
+        out[6] = '\0';
+        return;
+    }
+
+    snprintf(out, 7, "%06u", (unsigned)(file_index % 1000000U));
+}
+
+static void s_build_segment_paths(const char prefix[7], char segment_letter,
+                                  char *mic_path, size_t mic_size,
+                                  char *contact_path, size_t contact_size,
+                                  char *video_path, size_t video_size)
+{
+    snprintf(mic_path, mic_size, MOUNT_POINT"/%sS%c.WAV", prefix, segment_letter);
+    snprintf(contact_path, contact_size, MOUNT_POINT"/%sC%c.WAV", prefix, segment_letter);
+    snprintf(video_path, video_size, MOUNT_POINT"/%sV%c.MJP", prefix, segment_letter);
+}
+
 static bool s_progress_stalled(TickType_t last_tick, TickType_t timeout_ticks, TickType_t now)
 {
     return last_tick != 0 && (now - last_tick) > timeout_ticks;
@@ -890,28 +913,11 @@ void app_main(void)
             continue;
         }
 
-        char mic_path[EXAMPLE_MAX_CHAR_SIZE];
-        char contact_path[EXAMPLE_MAX_CHAR_SIZE];
-        char video_path[EXAMPLE_MAX_CHAR_SIZE];
-        char timestamp[16];
-        char contact_timestamp[16];
-        bool use_index_name = true;
-        if (ble_trigger_get_timestamp(timestamp, sizeof(timestamp))) {
-            // 8.3-safe names using YYMMDDHH (hour resolution) for both media types.
-            snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/%s.WAV", timestamp);
-            snprintf(contact_timestamp, sizeof(contact_timestamp), "%s", timestamp);
-            if (contact_timestamp[0] != '\0') {
-                contact_timestamp[0] = 'C';
-            }
-            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/%s.WAV", contact_timestamp);
-            snprintf(video_path, sizeof(video_path), MOUNT_POINT"/%s.MJP", timestamp);
-            use_index_name = false;
-        } else {
-            snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
-            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/CT%04u.WAV", (unsigned)file_index);
-            // Use 8.3-compatible name to avoid FATFS EINVAL when LFN is disabled.
-            snprintf(video_path, sizeof(video_path), MOUNT_POINT"/VID%04u.MJP", (unsigned)file_index);
-        }
+        char session_prefix[7];
+        s_build_session_prefix(session_prefix, file_index);
+        char segment_letter = 'A';
+        bool session_active = true;
+        bool session_saved = false;
 
         if (!s_wait_for_mount(MOUNT_POINT, 2000)) {
             ESP_LOGE(TAG, "Mount not ready for %s", MOUNT_POINT);
@@ -921,143 +927,151 @@ void app_main(void)
             continue;
         }
 
-        if (camera_app_is_ready() && !camera_app_is_recording()) {
-            esp_err_t cam_ret = camera_app_start_record(video_path);
-            if (cam_ret != ESP_OK && !use_index_name) {
-                ESP_LOGW(TAG, "Timestamped video name failed (%s); using index", esp_err_to_name(cam_ret));
-                snprintf(video_path, sizeof(video_path), MOUNT_POINT"/VID%04u.MJP", (unsigned)file_index);
-                use_index_name = true;
-                cam_ret = camera_app_start_record(video_path);
+        while (session_active) {
+            char mic_path[EXAMPLE_MAX_CHAR_SIZE];
+            char contact_path[EXAMPLE_MAX_CHAR_SIZE];
+            char video_path[EXAMPLE_MAX_CHAR_SIZE];
+            s_build_segment_paths(session_prefix, segment_letter,
+                                  mic_path, sizeof(mic_path),
+                                  contact_path, sizeof(contact_path),
+                                  video_path, sizeof(video_path));
+
+            if (camera_app_is_ready() && !camera_app_is_recording()) {
+                esp_err_t cam_ret = camera_app_start_record(video_path);
+                if (cam_ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Camera record start failed (%s)", esp_err_to_name(cam_ret));
+                    s_append_event_log("main: camera_app_start_record failed %s", esp_err_to_name(cam_ret));
+                    s_handle_record_failure("Recording failed", "camera start failed",
+                                            "camera start failed", &consecutive_record_failures);
+                    session_active = false;
+                    break;
+                }
             }
-            if (cam_ret != ESP_OK) {
-                ESP_LOGE(TAG, "Camera record start failed (%s)", esp_err_to_name(cam_ret));
-                s_append_event_log("main: camera_app_start_record failed %s", esp_err_to_name(cam_ret));
-                s_handle_record_failure("Recording failed", "camera start failed",
-                                        "camera start failed", &consecutive_record_failures);
-                vTaskDelay(pdMS_TO_TICKS(500));
-                continue;
-            }
-        }
-        int captured_seconds = 0;
-        int contact_captured_seconds = 0;
-        ret = mic_capture_start(mic_path, 0);
-        if (ret != ESP_OK && !use_index_name) {
-            ESP_LOGW(TAG, "Timestamped mic name failed (%s); using index", esp_err_to_name(ret));
-            snprintf(mic_path, sizeof(mic_path), MOUNT_POINT"/mic_%04u.wav", (unsigned)file_index);
-            snprintf(contact_path, sizeof(contact_path), MOUNT_POINT"/CT%04u.WAV", (unsigned)file_index);
-            use_index_name = true;
+
+            int captured_seconds = 0;
+            int contact_captured_seconds = 0;
             ret = mic_capture_start(mic_path, 0);
-        }
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Mic capture start failed");
-            s_append_event_log("main: mic_capture_start failed %s", esp_err_to_name(ret));
-            s_handle_record_failure("Recording failed", "mic start failed",
-                                    "mic start failed", &consecutive_record_failures);
-            vTaskDelay(pdMS_TO_TICKS(500));
-            continue;
-        }
-
-#if ENABLE_CONTACT_MIC_RECORDING
-        ret = mic_capture_contact_start(contact_path, 0);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Contact mic capture start failed");
-            s_append_event_log("main: mic_capture_contact_start failed %s", esp_err_to_name(ret));
-            s_handle_record_failure("Recording failed", "contact start failed",
-                                    "contact mic start failed", &consecutive_record_failures);
-            vTaskDelay(pdMS_TO_TICKS(500));
-            continue;
-        }
-#endif
-
-        bool mic_stalled = false;
-        bool contact_stalled = false;
-        const TickType_t stall_timeout_ticks = pdMS_TO_TICKS(RECORDING_STALL_TIMEOUT_MS);
-        while (mic_capture_is_running()
-#if ENABLE_CONTACT_MIC_RECORDING
-               || mic_capture_contact_is_running()
-#endif
-        ) {
-            const TickType_t now = xTaskGetTickCount();
-            if (mic_capture_is_running() &&
-                s_progress_stalled(mic_capture_last_progress_tick(), stall_timeout_ticks, now)) {
-                mic_stalled = true;
-                s_append_event_log("main: mic stalled, forcing stop");
-                button_force_idle();
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Mic capture start failed");
+                s_append_event_log("main: mic_capture_start failed %s", esp_err_to_name(ret));
+                s_handle_record_failure("Recording failed", "mic start failed",
+                                        "mic start failed", &consecutive_record_failures);
+                session_active = false;
                 break;
             }
+
 #if ENABLE_CONTACT_MIC_RECORDING
-            if (mic_capture_contact_is_running() &&
-                s_progress_stalled(mic_capture_contact_last_progress_tick(), stall_timeout_ticks, now)) {
-                contact_stalled = true;
-                s_append_event_log("main: contact stalled, forcing stop");
+            ret = mic_capture_contact_start(contact_path, 0);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Contact mic capture start failed");
+                s_append_event_log("main: mic_capture_contact_start failed %s", esp_err_to_name(ret));
+                s_handle_record_failure("Recording failed", "contact start failed",
+                                        "contact mic start failed", &consecutive_record_failures);
                 button_force_idle();
+                camera_app_wait_for_stop();
+                mic_capture_wait(NULL, pdMS_TO_TICKS(1000));
+                session_active = false;
                 break;
             }
 #endif
-            vTaskDelay(pdMS_TO_TICKS(200));
-        }
 
-        ret = mic_capture_wait(&captured_seconds, pdMS_TO_TICKS(1000));
-        esp_err_t contact_ret = ESP_OK;
+            bool mic_stalled = false;
+            bool contact_stalled = false;
+            uint32_t restart_elapsed_seconds = 0;
+            const TickType_t stall_timeout_ticks = pdMS_TO_TICKS(RECORDING_STALL_TIMEOUT_MS);
+            while (mic_capture_is_running()
 #if ENABLE_CONTACT_MIC_RECORDING
-        contact_ret = mic_capture_contact_wait(&contact_captured_seconds, pdMS_TO_TICKS(1000));
+                   || mic_capture_contact_is_running()
 #endif
-        if (mic_stalled || ret == ESP_ERR_TIMEOUT) {
-            ESP_LOGE(TAG, "Mic capture stalled");
-            s_append_event_log("main: mic capture stall timeout");
-            s_handle_record_failure("mic stalled", s_basename_or_default(mic_path, "unnamed file"),
-                                    "mic capture stalled", &consecutive_record_failures);
+            ) {
+                const TickType_t now = xTaskGetTickCount();
+                if (mic_capture_is_running() &&
+                    s_progress_stalled(mic_capture_last_progress_tick(), stall_timeout_ticks, now)) {
+                    mic_stalled = true;
+                    restart_elapsed_seconds = button_get_record_elapsed_seconds();
+                    s_append_event_log("main: mic stalled, restarting");
+                    button_set_idle_display("mic stalled", "Restarting...");
+                    button_force_idle();
+                    break;
+                }
 #if ENABLE_CONTACT_MIC_RECORDING
-        } else if (contact_stalled || contact_ret == ESP_ERR_TIMEOUT) {
-            ESP_LOGE(TAG, "Contact mic capture stalled");
-            s_append_event_log("main: contact capture stall timeout");
-            s_handle_record_failure("contact stalled",
-                                    s_basename_or_default(mic_path, "unnamed file"),
-                                    "contact mic capture stalled", &consecutive_record_failures);
+                if (mic_capture_contact_is_running() &&
+                    s_progress_stalled(mic_capture_contact_last_progress_tick(), stall_timeout_ticks, now)) {
+                    contact_stalled = true;
+                    restart_elapsed_seconds = button_get_record_elapsed_seconds();
+                    s_append_event_log("main: contact stalled, restarting");
+                    button_set_idle_display("contact stalled", "Restarting...");
+                    button_force_idle();
+                    break;
+                }
 #endif
-        } else if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Mic capture failed");
-            s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
-            if (s_file_exists(mic_path)) {
-                const char *filename = s_basename_or_default(mic_path, "unnamed file");
-                s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), filename,
-                                        "mic capture reported fail after file save",
-                                        &consecutive_record_failures);
+                vTaskDelay(pdMS_TO_TICKS(200));
+            }
+
+            ret = mic_capture_wait(&captured_seconds, pdMS_TO_TICKS(1000));
+            esp_err_t contact_ret = ESP_OK;
+#if ENABLE_CONTACT_MIC_RECORDING
+            contact_ret = mic_capture_contact_wait(&contact_captured_seconds, pdMS_TO_TICKS(1000));
+#endif
+            camera_app_wait_for_stop();
+            s_append_event_log("main: camera_app_wait_for_stop done button=%d", button_is_recording());
+
+            if (mic_stalled || contact_stalled) {
+                if (segment_letter >= 'Z') {
+                    s_handle_record_failure("restart limit", s_basename_or_default(mic_path, "unnamed file"),
+                                            "segment restart limit reached", &consecutive_record_failures);
+                    session_active = false;
+                    break;
+                }
+                button_set_idle_display("Restarting...", s_basename_or_default(mic_path, "unnamed file"));
+                button_restart_recording_with_elapsed(restart_elapsed_seconds);
+                segment_letter++;
+                continue;
+            } else if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Mic capture failed");
+                s_append_event_log("main: mic_capture_wait failed %s", esp_err_to_name(ret));
+                if (s_file_exists(mic_path)) {
+                    const char *filename = s_basename_or_default(mic_path, "unnamed file");
+                    s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), filename,
+                                            "mic capture reported fail after file save",
+                                            &consecutive_record_failures);
+                } else {
+                    s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), "no mic file",
+                                            "mic capture failed", &consecutive_record_failures);
+                }
+                session_active = false;
+#if ENABLE_CONTACT_MIC_RECORDING
+            } else if (contact_ret != ESP_OK) {
+                ESP_LOGE(TAG, "Contact mic capture failed");
+                s_append_event_log("main: mic_capture_contact_wait failed %s", esp_err_to_name(contact_ret));
+                s_handle_record_failure(s_contact_stage_label(mic_capture_contact_debug_last_stage()),
+                                        s_basename_or_default(mic_path, "unnamed file"),
+                                        "contact mic capture failed", &consecutive_record_failures);
+                session_active = false;
+#endif
             } else {
-                s_handle_record_failure(s_mic_stage_label(mic_capture_last_stage()), "no mic file",
-                                        "mic capture failed", &consecutive_record_failures);
-            }
-#if ENABLE_CONTACT_MIC_RECORDING
-        } else if (contact_ret != ESP_OK) {
-            ESP_LOGE(TAG, "Contact mic capture failed");
-            s_append_event_log("main: mic_capture_contact_wait failed %s", esp_err_to_name(contact_ret));
-            s_handle_record_failure(s_contact_stage_label(mic_capture_contact_debug_last_stage()),
-                                    s_basename_or_default(mic_path, "unnamed file"),
-                                    "contact mic capture failed", &consecutive_record_failures);
-#endif
-        } else {
-            char line1[32];
-            const char *filename = s_basename_or_default(mic_path, "unnamed file");
-            snprintf(line1, sizeof(line1), "Saved %ds in", captured_seconds);
-            button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
-            if (use_index_name) {
+                char line1[32];
+                const char *filename = s_basename_or_default(mic_path, "unnamed file");
+                uint32_t total_elapsed_seconds = button_get_record_elapsed_seconds();
+                snprintf(line1, sizeof(line1), "Saved %lus in", (unsigned long)total_elapsed_seconds);
+                button_set_idle_display(line1, filename[0] != '\0' ? filename : "unnamed file");
                 file_index++;
-            }
-            consecutive_record_failures = 0;
-            s_append_event_log("main: mic_capture_wait ok seconds=%d file=%s", captured_seconds, filename);
+                consecutive_record_failures = 0;
+                session_saved = true;
+                s_append_event_log("main: mic_capture_wait ok seconds=%d file=%s", captured_seconds, filename);
 #if ENABLE_CONTACT_MIC_RECORDING
-            s_append_event_log("main: contact_capture_wait ok seconds=%d file=%s",
-                               contact_captured_seconds, contact_path);
+                s_append_event_log("main: contact_capture_wait ok seconds=%d file=%s",
+                                   contact_captured_seconds, contact_path);
 #endif
+                session_active = false;
+            }
         }
 
-        camera_app_wait_for_stop();
-        s_append_event_log("main: camera_app_wait_for_stop done button=%d", button_is_recording());
 #if ENABLE_TINYUSB_MSC
         ESP_LOGI(TAG, "Exposing SD card over USB");
         ESP_ERROR_CHECK(s_switch_mount(TINYUSB_MSC_STORAGE_MOUNT_USB));
         ESP_ERROR_CHECK(s_usb_start());
 #endif
-        s_append_event_log("main: returned to idle");
+        s_append_event_log("main: returned to idle saved=%d", session_saved);
     }
 }
